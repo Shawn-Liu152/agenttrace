@@ -96,10 +96,20 @@ class TestStrongSignal(unittest.TestCase):
     def test_key_in_env_counts_available(self):
         tmp = tempfile.mkdtemp()
         db = os.path.join(tmp, "e.db")
-        with mock.patch.dict(os.environ, {"AGENTTRACE_ANCHOR_KEY_HEX": ("ab" * 32)}):
+        # 手动管理单变量（mock.patch.dict(os.environ) 会整体快照还原，
+        # 在有超长环境变量的 Windows 机器上触发 32767 限制）
+        env_key = "AGENTTRACE_ANCHOR_KEY_HEX"
+        old = os.environ.get(env_key)
+        os.environ[env_key] = "ab" * 32
+        try:
             st = anchor_state(db)
             self.assertTrue(st["key_available"])
             self.assertEqual(st["key_location"], "env")
+        finally:
+            if old is None:
+                os.environ.pop(env_key, None)
+            else:
+                os.environ[env_key] = old
 
 
 if __name__ == "__main__":

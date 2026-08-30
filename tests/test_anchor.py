@@ -146,9 +146,11 @@ class TestAnchorTamperResistance(unittest.TestCase):
         s = build_anchored_db(db, self.key)
         s.close()
         apath = db + ".anchor.json"
-        rec = json.load(open(apath, encoding="utf-8"))
+        with open(apath, encoding="utf-8") as f:
+            rec = json.load(f)
         rec["tip_hash"] = "0" * 64
-        json.dump(rec, open(apath, "w", encoding="utf-8"))
+        with open(apath, "w", encoding="utf-8") as f:
+            json.dump(rec, f)
         s = EvidenceStore(db, anchor_key=self.key)
         ok, problems, n = s.verify()
         s.close()

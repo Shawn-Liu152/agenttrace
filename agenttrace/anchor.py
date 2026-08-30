@@ -48,7 +48,7 @@ VERSION = 1
 
 
 def _key_root() -> str:
-    """密钥配置根目录：与数据库分离（Windows %APPDATA%\agenttrace\keys，
+    r"""密钥配置根目录：与数据库分离（Windows %APPDATA%\agenttrace\keys，
     POSIX ~/.config/agenttrace/keys）。"""
     import os as _os
 

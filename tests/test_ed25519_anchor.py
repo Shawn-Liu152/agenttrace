@@ -111,17 +111,19 @@ class TestEd25519Anchor(unittest.TestCase):
         anchor_v2.seal_anchor(self.db, events, meta, self.kp)
         s.close()
         path = self.db + ".anchor.json"
-        rec = json.load(open(path, encoding="utf-8"))
+        with open(path, encoding="utf-8") as f:
+            rec = json.load(f)
         rec["tip_hash"] = "0" * 64  # 攻击者改锚定但无法重签
-        json.dump(rec, open(path, "w", encoding="utf-8"))
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(rec, f)
         s = EvidenceStore(self.db)
         ok, problems = anchor_v2.verify_ed25519_anchor(self.db, s.all_events(), s.all_meta())
         s.close()
         self.assertFalse(ok)
         self.assertTrue(any("签名校验失败" in p for p in problems), problems)
 
-    def test_attack_wrong_keypair_detected(self):
-        """攻击者用自己的密钥对重签 → 若验证端绑定期望公钥则检出。"""
+    def test_attack_wrong_keypair_detected_when_pubkey_bound(self):
+        """攻击者用自己的密钥对重签 → 绑定期望公钥的验证端检出（对抗场景核心）。"""
         s = build_db(self.db)
         events, meta = s.all_events(), s.all_meta()
         anchor_v2.seal_anchor(self.db, events, meta, self.kp)
@@ -163,6 +165,36 @@ class TestEd25519Anchor(unittest.TestCase):
             self.db, events, meta, expected_public=self.kp.public_hex())
         s.close()
         self.assertTrue(ok, problems)
+
+    def test_unbound_verify_cannot_detect_reseal(self):
+        """边界（复评 P1）：不绑定期望公钥时，攻击者自签重签无法被检出——
+        用测试固定该边界，将来改默认行为时 CI 会提醒此权衡。"""
+        s = build_db(self.db)
+        events, meta = s.all_events(), s.all_meta()
+        anchor_v2.seal_anchor(self.db, events, meta, self.kp)
+        s.close()
+        attacker_kp = ed25519.Ed25519KeyPair.generate()
+        s = EvidenceStore(self.db)
+        evs = s.all_events()
+        evs[4]["content"] = {"name": "terminal", "arguments": {"command": "ls /data/old"}}
+        nc = []
+        for ev in evs:
+            e = {k: v for k, v in ev.items() if k not in ("prev_hash", "hash")}
+            nc.append(append_event(nc, e))
+        for ev in nc:
+            s.conn.execute(
+                "UPDATE events SET content=?, prev_hash=?, hash=? WHERE seq=?",
+                (json.dumps(ev["content"], sort_keys=True, separators=(",", ":")),
+                 ev.get("prev_hash"), ev["hash"], ev["seq"]),
+            )
+        s.conn.commit()
+        events_now, meta_now = s.all_events(), s.all_meta()
+        s.close()
+        anchor_v2.seal_anchor(self.db, events_now, meta_now, attacker_kp)
+        s = EvidenceStore(self.db)
+        ok, _ = anchor_v2.verify_ed25519_anchor(self.db, s.all_events(), s.all_meta())
+        s.close()
+        self.assertTrue(ok)  # 不绑定 → 无法检出（这正是 --public-key 必须默认推荐的原因）
 
     def test_meta_tamper_detected(self):
         s = build_db(self.db)

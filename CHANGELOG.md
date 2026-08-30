@@ -3,6 +3,22 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.4.1] - 2026-08-30
+
+### 复评 P1：默认验证路径诚实化（三条建议全部落实）
+
+- **`seal verify` 无 `--public-key` 时输出降级警告**（与未锚定警告对齐）：
+  「⚠ 未绑定期望公钥：本验证只能证明锚定自洽，无法排除"攻击者自造密钥重签"」，
+  成功文案改为「锚定自洽（仅自洽校验，非防伪造证明）」，退出码保持 0
+- **测试名修正**：`test_attack_wrong_keypair_detected` →
+  `..._when_pubkey_bound`；新增 `test_unbound_verify_cannot_detect_reseal`
+  把"不绑定时无法检出"的边界用测试固定（将来改默认行为 CI 会提醒权衡）
+- **README**：`--public-key` 从"合规/对抗场景"提升为**默认推荐步骤**；
+  新增 Ed25519 已知密码学边界（非常数时间标量乘 / cofactorless 验证）
+- 代码卫生：`anchor.py` docstring raw-string 消除 SyntaxWarning；
+  `anchor_v2.py`/测试 `json.load(open(...))` 改 with 消除 ResourceWarning
+- 62 测试全绿（+1 边界测试），`-W error::ResourceWarning/SyntaxWarning` 干净
+
 ## [0.4.0] - 2026-08-30
 
 ### Ed25519 非对称锚定（复评 4.1 的根本解法）

@@ -123,7 +123,8 @@ def verify_ed25519_anchor(db_path: str, events: list, meta: Dict[str, Any],
     if not os.path.exists(path):
         return False, ["锚定文件不存在（证据库从未锚定）"]
     try:
-        record = json.load(open(path, encoding="utf-8"))
+        with open(path, encoding="utf-8") as f:
+            record = json.load(f)
     except (json.JSONDecodeError, OSError) as e:
         return False, [f"锚定文件损坏: {e}"]
 

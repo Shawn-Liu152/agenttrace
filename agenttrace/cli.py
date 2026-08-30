@@ -261,9 +261,16 @@ def cmd_seal(args: argparse.Namespace) -> int:
         expected = None
         if args.public_key:
             expected = args.public_key.strip()
+        if expected is None:
+            # 复评 P1：默认路径无信任根——必须显式降级警告（与未锚定警告对齐）
+            print("⚠ 未绑定期望公钥: 本验证只能证明锚定自洽，无法排除\"攻击者自造密钥重签\"")
+            print("   对抗/合规场景请用 --public-key <hex> 绑定可信渠道分发的公钥")
         ok, problems = verify_ed25519_anchor(args.db, events, meta, expected_public=expected)
         if ok:
-            print(f"✔ Ed25519 锚定验证通过: {len(events)} 条事件（验证端无私钥也能验证）")
+            if expected is not None:
+                print(f"✔ Ed25519 锚定验证通过: {len(events)} 条事件（公钥已绑定，伪造可检出）")
+            else:
+                print(f"✔ Ed25519 锚定自洽: {len(events)} 条事件（⚠ 仅自洽校验，非防伪造证明）")
             store.close()
             return 0
         if st["has_anchor_file"] and not st["has_secret"] and not any("签名" in p for p in problems):

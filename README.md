@@ -131,14 +131,25 @@ python -m agenttrace seal keygen --db evidence.db
 # 2. 采集完事件后签名当前链状态
 python -m agenttrace seal seal --db evidence.db
 
-# 3. 验证端（无私钥！）：公钥验证
-python -m agenttrace seal verify --db evidence.db
-# 合规/对抗场景：绑定可信渠道分发的公钥（不符 = 整库伪造信号）
+# 3. 验证（默认步骤：绑定可信渠道分发的公钥——伪造可检出）
 python -m agenttrace seal verify --db evidence.db --public-key <公钥hex>
+
+# 仅自洽校验（不带 --public-key 时会明确警告：无法排除"攻击者自造密钥重签"）
+python -m agenttrace seal verify --db evidence.db
 ```
 
 攻击者即使重算整条链并用**自己的密钥**重签，绑定期望公钥的验证端也会检出
-「锚定公钥与期望公钥不符（整库伪造信号）」。
+「锚定公钥与期望公钥不符（整库伪造信号）」。**不带 `--public-key` 的验证只证明
+锚定自洽，不构成防伪造证明**——CLI 会在该路径下显式输出降级警告。
+
+**Ed25519 实现的已知密码学边界**（复评审计确认项，如实记录）：
+
+- **非常数时间标量乘**：`_point_mul` 用 double-and-add，分支依赖私钥比特，存在
+  时序侧信道的理论风险。对本项目威胁模型（事后篡改证据库，而非对签名进程做
+  细粒度时序观测）实际风险低——纯 Python 噪声也使实用化提取困难。生产高对抗
+  场景建议换用 libsodium/`cryptography` 后端（架构兼容）。
+- **cofactorless 验证**：按 RFC 8032 原始规定用 `sB = R + hA`，未做余因子乘法。
+  小阶点公钥会被拒绝（实测），对本场景（验证特定公钥 + 可选绑定）无实际问题。
 
 ---
 

@@ -3,6 +3,27 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - 2026-08-30
+
+### 证据包导出（路线图项：证据包归档）
+
+- **新命令 `bundle`**：
+  - `bundle export --db ev.db [--out xxx.zip]` —— 一次打包全部证据：
+    证据库 + 外部锚定 + Ed25519 公钥（`anchor.public_key.txt`，从锚定记录
+    内嵌公钥生成）+ 最新审计报告 + `manifest.json`（每文件 SHA-256）
+    + 验证者 README（逐步验证指引）
+  - `bundle verify-manifest <解包目录>` —— 包清单校验：逐文件哈希比对 +
+    缺失文件检出 + **未登记新增文件检出**
+- **包内规范名**：无论源库名，包内统一 `evidence.db` / `evidence.db.anchor.json`
+  ——与 README 指引一致，防止验证者误指路径被 sqlite 静默建空库误导
+- **接收方独立验证**（无需签名私钥 / 无需 HMAC 密钥）：
+  `verify-manifest` → `seal verify --public-key <包内公钥，经独立渠道核对>`
+- 新增 `agenttrace/bundle.py` + `tests/test_bundle.py`（8 用例：
+  成员完整 / 清单通过 / 篡改检出 / 新增文件检出 / 缺失检出 / 解包库独立验证 /
+  空库拒绝 / HMAC-only 包降级验证）；全量 70 测试
+- 已知边界：manifest 自身不签名——防"包内单文件被替换"；整包伪造的防线
+  在锚定签名 + 公钥独立渠道核对（README.txt 已说明）
+
 ## [0.4.1] - 2026-08-30
 
 ### 复评 P1：默认验证路径诚实化（三条建议全部落实）

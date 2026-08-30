@@ -15,4 +15,4 @@ AgentTrace — AI Agent 取证审计工具
     agenttrace report --db evidence.db --out report.html
 """
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"

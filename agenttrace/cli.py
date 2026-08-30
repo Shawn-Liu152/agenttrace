@@ -286,6 +286,35 @@ def cmd_seal(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_bundle(args: argparse.Namespace) -> int:
+    """证据包导出与包清单校验（v0.5）。"""
+    from .bundle import export_bundle, verify_manifest
+    if args.action == "export":
+        out_path = args.out or (os.path.splitext(args.db)[0] + "-bundle.zip")
+        try:
+            out = export_bundle(args.db, out_path, title=args.title)
+        except (FileNotFoundError, ValueError) as e:
+            print(f"✘ 导出失败: {e}", file=sys.stderr)
+            return 1
+        size = os.path.getsize(out)
+        print(f"📦 证据包已导出: {out} ({size:,} bytes)")
+        print(f"   解包后: python -m agenttrace bundle verify-manifest <目录>")
+        print(f"           python -m agenttrace verify --db <目录>/evidence.db")
+        return 0
+    if args.action == "verify-manifest":
+        target = args.bundle_dir or "."
+        ok, problems = verify_manifest(target)
+        if ok:
+            print(f"✔ 包清单校验通过: 所有文件哈希一致（{target}）")
+            return 0
+        print(f"✘ 包清单校验失败: {len(problems)} 处问题")
+        for p in problems:
+            print(f"   - {p}")
+        return 2
+    print(f"✘ 未知 bundle 子命令: {args.action}", file=sys.stderr)
+    return 1
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="agenttrace",
@@ -330,6 +359,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_seal.add_argument("--public-key", default=None,
                         help="verify 时期望的公钥（hex，来自可信渠道；不符 = 整库伪造信号）")
 
+    p_bundle = sub.add_parser("bundle", help="证据包（v0.5）：export/verify-manifest")
+    p_bundle.add_argument("action", choices=["export", "verify-manifest"],
+                          help="export=导出证据包 zip, verify-manifest=校验解包目录")
+    p_bundle.add_argument("bundle_dir", nargs="?", default=None,
+                          help="verify-manifest 的解包目录（顶层含 manifest.json）")
+    p_bundle.add_argument("--db", default=_default_db(), help="证据库路径（export 用）")
+    p_bundle.add_argument("--out", default=None, help="导出 zip 路径（默认 evidence-bundle.zip）")
+    p_bundle.add_argument("--title", default="AgentTrace 审计报告", help="包内报告标题")
+
     args = parser.parse_args(argv)
     if not args.cmd:
         parser.print_help()
@@ -342,6 +380,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "analyze": cmd_analyze,
         "report": cmd_report,
         "seal": cmd_seal,
+        "bundle": cmd_bundle,
     }[args.cmd](args)
 
 

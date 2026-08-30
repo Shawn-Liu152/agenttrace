@@ -40,6 +40,12 @@ python -m agenttrace analyze --db evidence.db
 
 # 5. 生成 HTML 时间线回放审计报告
 python -m agenttrace report --db evidence.db --out report.html
+
+# 6. （可选）导出证据包：链+锚定+公钥+报告 打成可独立验证的 zip
+python -m agenttrace bundle export --db evidence.db
+# 接收方解包后:
+#   python -m agenttrace bundle verify-manifest <解包目录>
+#   python -m agenttrace seal verify --db <解包目录>/evidence.db --public-key <公钥>
 ```
 
 实时流模式（Agent 运行时边跑边取证）：
@@ -228,10 +234,11 @@ python -m agenttrace report --db demo.db --out report.html
 - [x] JSONL 批量 / stdin 实时流采集
 - [x] 风险分析（6 类规则，FP/FN 回归测试门禁）
 - [x] HTML 时间线回放报告（搜索/过滤/哈希/锚定状态展示）
-- [ ] 锚定升级：Ed25519 签名 / RFC3161 时间戳（当前 HMAC 架构兼容）
+- [x] Ed25519 非对称锚定（RFC 8032 纯 Python 实现：验证端无私钥验证 + 公钥绑定防伪造）
+- [x] 证据包导出（bundle：链+锚定+公钥+报告+manifest 一体归档）
+- [ ] RFC3161 时间戳锚定（对接权威 TSA）
 - [ ] Agent 框架适配器（OpenAI Responses API / LangGraph 钩子）
-- [ ] 脱敏模式（报告不展示原始密钥/PII）
-- [ ] 证据包导出（链 + 数据库 + 锚定 + 报告一起归档）
+- [ ] 报告脱敏模式（--redact：密钥/PII 命中上下文打码）
 - [ ] 多会话聚合审计（跨 Agent 行为画像）
 
 ---

@@ -1,0 +1,242 @@
+"""AgentTrace 命令行入口。
+
+用法:
+    python -m agenttrace record <session.jsonl> [--db evidence.db]
+    python -m agenttrace record --stdin [--db evidence.db]
+    python -m agenttrace verify [--db evidence.db]
+    python -m agenttrace analyze [--db evidence.db] [--json]
+    python -m agenttrace report [--db evidence.db] [--out report.html] [--title "审计报告"]
+    python -m agenttrace init [--db evidence.db] [--agent hermes] [--model ...]
+
+    * --db 默认 evidence.db（当前目录）
+    * 未指定子命令时显示帮助
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from typing import List, Optional
+
+from . import __version__
+from .anchor import Anchor, AnchorKey, ensure_key, anchor_path_for, key_path_for
+from .analyzer import analyze_chain, summarize
+from .recorder import Recorder, make_session_start, make_session_end
+from .report import render_report_file
+from .store import EvidenceStore
+
+
+def _default_db() -> str:
+    return os.environ.get("AGENTTRACE_DB", "evidence.db")
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    anchor_key = None
+    if args.anchor:
+        anchor_key = ensure_key(args.db, args.anchor_key_path)
+        print(f"🔑 锚定密钥: {anchor_key.hex()[:8]}… (写至 {key_path_for(args.db)})")
+    store = EvidenceStore(args.db, anchor_key=anchor_key)
+    store.set_meta("agent", args.agent)
+    if args.model:
+        store.set_meta("model", args.model)
+    if args.tools:
+        try:
+            tools = json.loads(args.tools)
+        except json.JSONDecodeError:
+            tools = [t.strip() for t in args.tools.split(",") if t.strip()]
+    else:
+        tools = []
+    store.set_meta("tools", tools)
+    store.set_meta("created_at", time.time())
+    # 写入 session_start 作为链首
+    rec = Recorder(store)
+    rec.ingest(make_session_start(agent=args.agent, model=args.model, tools=tools))
+    if anchor_key is not None:
+        print(f"✔ 初始化已锚定证据库: {args.db} (链首已写入, 共 {store.count()} 条, 锚定 {anchor_path_for(args.db)})")
+    else:
+        print(f"✔ 初始化证据库: {args.db} (链首已写入, 共 {store.count()} 条)")
+        print("⚠ 未锚定: 建议加 --anchor 启用外部签名（否则防不了整链重写/末尾截断）")
+    store.close()
+    return 0
+
+
+def _print_verify(store: EvidenceStore) -> int:
+    """verify 分级输出：0=完整有效, 1=链自洽但未锚定(警告), 2=链异常。"""
+    events = store.all_events()
+    ok, problems, total = store.verify()
+    anchored = store.anchor is not None
+    # 分离"未锚定"警告与真实异常
+    real = [p for p in problems if not p.startswith("未锚定")]
+    if ok:
+        print(f"✔ 证据链完整有效: {total} 条事件，全部哈希验证通过")
+        if anchored:
+            print(f"   🔐 外部锚定有效（genesis/tip/meta 均与签名一致）")
+        else:
+            print(f"   ⚠ 未锚定: 只能防内部不一致，防不了整链重写/末尾截断/元信息篡改")
+            print(f"     建议: agenttrace init --anchor 或重建库时启用锚定")
+        store.close()
+        return 0 if anchored else 1
+    if not real:
+        print(f"⚠ 证据链自洽 ({total} 条) 但未锚定，无法证明未被整体替换")
+        store.close()
+        return 1
+    print(f"✘ 证据链异常: {total} 条事件，{len(real)} 处问题")
+    for p in real:
+        print(f"   - {p}")
+    store.close()
+    return 2
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    anchor_key = None
+    key_path = key_path_for(args.db)
+    if os.path.exists(key_path):
+        anchor_key = AnchorKey.load(key_path)
+    store = EvidenceStore(args.db, anchor_key=anchor_key)
+    return _print_verify(store)
+
+
+def cmd_record(args: argparse.Namespace) -> int:
+    # record 时加载锚定密钥以继续更新锚定（密钥默认在 <db>.anchor.key）
+    anchor_key = None
+    key_path = key_path_for(args.db)
+    if os.path.exists(key_path):
+        anchor_key = AnchorKey.load(key_path)
+    store = EvidenceStore(args.db, anchor_key=anchor_key)
+    rec = Recorder(store)
+    before = store.count()
+    if args.stdin:
+        n = rec.ingest_stdin()
+        print(f"✔ 从 stdin 摄入 {n} 条事件 → {args.db} (共 {before + n} 条)")
+    else:
+        n = rec.ingest_jsonl_file(args.file)
+        print(f"✔ 从 {args.file} 摄入 {n} 条事件 → {args.db} (共 {before + n} 条)")
+    if anchor_key is not None:
+        ok, problems, total = store.verify()
+        if ok:
+            print(f"✔ 证据链验证通过 ({total} 条, 锚定已更新)")
+        else:
+            print(f"✘ 证据链验证失败 ({len(problems)} 处问题):")
+            for p in problems[:10]:
+                print(f"   - {p}")
+            store.close()
+            return 2
+    else:
+        # 未锚定：只做内部一致性校验
+        events = store.all_events()
+        from .chain import verify_chain as _vc
+        ok, problems = _vc(events)
+        if ok:
+            print(f"✔ 证据链自洽 ({len(events)} 条) ⚠ 未锚定（无法防整链重写/末尾截断）")
+        else:
+            print(f"✘ 证据链异常 ({len(problems)} 处):")
+            for p in problems[:10]:
+                print(f"   - {p}")
+            store.close()
+            return 2
+    store.close()
+    return 0
+
+
+def cmd_analyze(args: argparse.Namespace) -> int:
+    store = EvidenceStore(args.db)
+    events = store.all_events()
+    findings = analyze_chain(events)
+    summ = summarize(findings)
+    if args.json:
+        print(json.dumps({
+            "events": len(events),
+            "summary": summ,
+            "findings": [f.to_dict() for f in findings],
+        }, ensure_ascii=False, indent=2))
+    else:
+        print(f"事件: {len(events)} | 发现: {summ['total']} "
+              f"(高 {summ['by_severity'].get('high', 0)} / "
+              f"中 {summ['by_severity'].get('medium', 0)} / "
+              f"低 {summ['by_severity'].get('low', 0)})")
+        for f in findings:
+            print(f"  [{f.severity.upper():6}] #{f.seq:4d} {f.category} - {f.title}")
+            print(f"           {f.detail[:100]}")
+    store.close()
+    return 0
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    anchor_key = None
+    key_path = key_path_for(args.db)
+    if os.path.exists(key_path):
+        anchor_key = AnchorKey.load(key_path)
+    store = EvidenceStore(args.db, anchor_key=anchor_key)
+    events = store.all_events()
+    findings = analyze_chain(events)
+    meta = store.all_meta()
+    if not events:
+        print("✘ 证据库为空，无法生成报告", file=sys.stderr)
+        store.close()
+        return 1
+    anchored = store.anchor is not None
+    anchor_info = ""
+    if anchored:
+        aok, aproblems = store.anchor.verify(events, store.all_meta())
+        anchor_info = "锚定有效" if aok else ("锚定异常: " + "; ".join(aproblems[:2]))
+    out = render_report_file(events, findings, meta, args.out, title=args.title,
+                             anchored=anchored, anchor_info=anchor_info)
+    print(f"✔ 报告已生成: {out}")
+    store.close()
+    return 0
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="agenttrace",
+        description="AI Agent 取证审计工具 — 防篡改证据链 + 风险分析 + 时间线回放报告",
+    )
+    parser.add_argument("--version", action="version", version=f"agenttrace {__version__}")
+    sub = parser.add_subparsers(dest="cmd")
+
+    p_init = sub.add_parser("init", help="初始化证据库（写入 session_start 链首）")
+    p_init.add_argument("--db", default=_default_db(), help="证据库路径 (默认 evidence.db)")
+    p_init.add_argument("--agent", default="unknown", help="Agent 名称 (如 hermes/codex)")
+    p_init.add_argument("--model", default="", help="模型名称")
+    p_init.add_argument("--tools", default="", help="工具清单 (JSON 或逗号分隔)")
+    p_init.add_argument("--anchor", action="store_true",
+                        help="启用外部锚定：生成 HMAC-SHA256 签名密钥（防整链重写/末尾截断/元信息篡改）")
+    p_init.add_argument("--anchor-key-path", default=None,
+                        help="锚定密钥路径（默认 <db>.anchor.key；也可用环境变量 AGENTTRACE_ANCHOR_KEY_HEX/PATH）")
+
+    p_rec = sub.add_parser("record", help="摄入事件（JSONL 文件或 stdin 流）")
+    p_rec.add_argument("file", nargs="?", help="JSONL 文件路径；缺省结合 --stdin")
+    p_rec.add_argument("--stdin", action="store_true", help="从 stdin 实时读取")
+    p_rec.add_argument("--db", default=_default_db(), help="证据库路径")
+
+    p_ver = sub.add_parser("verify", help="验证证据链完整性（含外部锚定，若已锚定）")
+    p_ver.add_argument("--db", default=_default_db(), help="证据库路径")
+
+    p_ana = sub.add_parser("analyze", help="风险分析")
+    p_ana.add_argument("--db", default=_default_db(), help="证据库路径")
+    p_ana.add_argument("--json", action="store_true", help="JSON 输出")
+
+    p_rep = sub.add_parser("report", help="生成 HTML 时间线回放报告")
+    p_rep.add_argument("--db", default=_default_db(), help="证据库路径")
+    p_rep.add_argument("--out", default="report.html", help="输出 HTML 路径")
+    p_rep.add_argument("--title", default="AgentTrace 审计报告", help="报告标题")
+
+    args = parser.parse_args(argv)
+    if not args.cmd:
+        parser.print_help()
+        return 1
+
+    return {
+        "init": cmd_init,
+        "record": cmd_record,
+        "verify": cmd_verify,
+        "analyze": cmd_analyze,
+        "report": cmd_report,
+    }[args.cmd](args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

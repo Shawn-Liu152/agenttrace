@@ -34,7 +34,7 @@ from typing import Any, Dict, Optional
 from .schema import canonical_json
 
 ANCHOR_SUFFIX = ".anchor.json"
-KEY_SUFFIX = ".anchor.key"
+KEY_SUFFIX = ".anchor.key"  # 旧版默认（与数据库同目录）——仅兼容迁移用
 
 GENESIS_FIELD = "genesis_hash"
 SEQ_FIELD = "seq_max"
@@ -45,6 +45,18 @@ MAC_FIELD = "mac"
 VERSION_FIELD = "version"
 
 VERSION = 1
+
+
+def _key_root() -> str:
+    """密钥配置根目录：与数据库分离（Windows %APPDATA%\agenttrace\keys，
+    POSIX ~/.config/agenttrace/keys）。"""
+    import os as _os
+
+    if _os.name == "nt":
+        base = _os.environ.get("APPDATA") or _os.path.expanduser("~")
+        return _os.path.join(base, "agenttrace", "keys")
+    base = _os.environ.get("XDG_CONFIG_HOME") or _os.path.expanduser("~/.config")
+    return _os.path.join(base, "agenttrace", "keys")
 
 
 def tip_hash_of(events: list) -> Optional[str]:
@@ -83,7 +95,32 @@ def anchor_path_for(db_path: str) -> str:
 
 
 def key_path_for(db_path: str) -> str:
+    """新默认密钥路径：独立于数据库（用户配置目录，按 db 路径哈希命名）。
+
+    与数据库分离是安全前提——密钥与库同目录 = 拿到库的写权限者
+    同时拿到密钥，可重签锚定、抹掉一切痕迹。
+    """
+    import hashlib as _hashlib
+
+    digest = _hashlib.sha256(db_path.encode("utf-8")).hexdigest()[:12]
+    basename = os.path.basename(db_path) or "evidence"
+    return os.path.join(_key_root(), f"{basename}.{digest}.key")
+
+
+def legacy_key_path_for(db_path: str) -> str:
+    """v0.1/v0.2 旧版密钥路径（与库同目录）——仅用于兼容迁移。"""
     return db_path + KEY_SUFFIX
+
+
+def resolve_key_path(db_path: str) -> str:
+    """实际使用的密钥路径：优先新位置；旧位置存在则返回旧位置（并提示迁移）。"""
+    new_path = key_path_for(db_path)
+    if os.path.exists(new_path):
+        return new_path
+    legacy = legacy_key_path_for(db_path)
+    if os.path.exists(legacy):
+        return legacy
+    return new_path
 
 
 class AnchorKey:
@@ -218,16 +255,63 @@ class Anchor:
 def ensure_key(db_path: str, key_path: Optional[str] = None) -> AnchorKey:
     """获取密钥：给定路径存在则加载；否则生成并写入密钥文件。
 
-    密钥默认与锚定文件同目录（<db>.anchor.key）——生产环境建议
-    通过环境变量 AGENTTRACE_ANCHOR_KEY_HEX 或独立保管的密钥文件注入。
+    优先顺序：
+      1. 显式 key_path 参数
+      2. 环境变量 AGENTTRACE_ANCHOR_KEY_HEX（hex 密钥）/
+         AGENTTRACE_ANCHOR_KEY_PATH（密钥文件路径）
+      3. 新默认位置（用户配置目录，与数据库分离）
+      4. 旧位置 <db>.anchor.key 存在则复用（兼容迁移）
     """
     if key_path is None:
-        key_path = os.environ.get("AGENTTRACE_ANCHOR_KEY_PATH") or key_path_for(db_path)
+        key_path = os.environ.get("AGENTTRACE_ANCHOR_KEY_PATH")
     hex_env = os.environ.get("AGENTTRACE_ANCHOR_KEY_HEX")
     if hex_env:
         return AnchorKey.from_hex(hex_env)
+    if key_path is None:
+        key_path = resolve_key_path(db_path)
     if os.path.exists(key_path):
         return AnchorKey.load(key_path)
+    # 新目录不存在则创建
+    key_dir = os.path.dirname(key_path)
+    if key_dir:
+        os.makedirs(key_dir, exist_ok=True)
     key = AnchorKey.generate()
     key.save(key_path)
     return key
+
+
+def anchor_state(db_path: str) -> Dict[str, Any]:
+    """检查 db 的锚定/密钥状态（供 CLI 分级输出）。返回:
+    {
+      "has_anchor_file": bool,   # 锚定文件存在
+      "key_available": bool,     # 能找到密钥（新位置/旧位置/环境变量）
+      "key_location": str,       # "config-dir" / "legacy"(与库同目录) / "env" / "missing" / "explicit"
+      "anchor_ok": Optional[bool],  # 若可验证，锚定是否有效
+      "problems": [str],
+    }
+    """
+    import os as _os
+
+    anchor_path = anchor_path_for(db_path)
+    has_anchor = _os.path.exists(anchor_path)
+    key_available = False
+    key_location = "missing"
+
+    if _os.environ.get("AGENTTRACE_ANCHOR_KEY_HEX"):
+        key_available, key_location = True, "env"
+    elif _os.environ.get("AGENTTRACE_ANCHOR_KEY_PATH") and _os.path.exists(
+        _os.environ["AGENTTRACE_ANCHOR_KEY_PATH"]
+    ):
+        key_available, key_location = True, "explicit"
+    elif _os.path.exists(key_path_for(db_path)):
+        key_available, key_location = True, "config-dir"
+    elif _os.path.exists(legacy_key_path_for(db_path)):
+        key_available, key_location = True, "legacy"
+
+    return {
+        "has_anchor_file": has_anchor,
+        "key_available": key_available,
+        "key_location": key_location,
+        "anchor_ok": None,
+        "problems": [],
+    }

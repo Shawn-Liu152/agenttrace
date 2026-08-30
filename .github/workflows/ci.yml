@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run attack repro (tamper-resistance)
+        run: python tests/attack_repro.py
+
+      - name: Verify pyproject parses
+        run: python -c "import tomllib; tomllib.load(open('pyproject.toml','rb')); print('pyproject OK')"
+
+      - name: Verify zero-dependency claim
+        run: |
+          python - <<'EOF'
+          import ast, pathlib, sys
+          allowed = set(sys.stdlib_module_names) | {'agenttrace'}
+          bad = []
+          for p in pathlib.Path('agenttrace').glob('*.py'):
+              tree = ast.parse(p.read_text(encoding='utf-8'))
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.Import):
+                      for a in node.names:
+                          top = a.name.split('.')[0]
+                          if top not in allowed:
+                              bad.append((p.name, a.name))
+                  elif isinstance(node, ast.ImportFrom) and node.module:
+                      top = node.module.split('.')[0]
+                      if top not in allowed:
+                          bad.append((p.name, node.module))
+          assert not bad, f'非标准库依赖: {bad}'
+          print('zero-dependency OK (AST import scan)')
+          EOF

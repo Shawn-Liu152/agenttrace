@@ -22,7 +22,10 @@ import time
 from typing import List, Optional
 
 from . import __version__
-from .anchor import Anchor, AnchorKey, ensure_key, anchor_path_for, key_path_for
+from .anchor import (
+    Anchor, AnchorKey, anchor_path_for, anchor_state, ensure_key,
+    key_path_for, legacy_key_path_for, resolve_key_path,
+)
 from .analyzer import analyze_chain, summarize
 from .recorder import Recorder, make_session_start, make_session_end
 from .report import render_report_file
@@ -37,7 +40,15 @@ def cmd_init(args: argparse.Namespace) -> int:
     anchor_key = None
     if args.anchor:
         anchor_key = ensure_key(args.db, args.anchor_key_path)
-        print(f"🔑 锚定密钥: {anchor_key.hex()[:8]}… (写至 {key_path_for(args.db)})")
+        state = anchor_state(args.db)
+        loc = state["key_location"]
+        loc_note = {
+            "env": "环境变量注入",
+            "explicit": f"显式路径 ({args.anchor_key_path})",
+            "config-dir": f"用户配置目录 ({key_path_for(args.db)})",
+            "legacy": f"旧位置（与库同目录，建议迁移）: {legacy_key_path_for(args.db)}",
+        }.get(loc, loc)
+        print(f"🔑 锚定密钥: {anchor_key.hex()[:8]}… (位置: {loc_note})")
     store = EvidenceStore(args.db, anchor_key=anchor_key)
     store.set_meta("agent", args.agent)
     if args.model:
@@ -63,17 +74,38 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
-def _print_verify(store: EvidenceStore) -> int:
-    """verify 分级输出：0=完整有效, 1=链自洽但未锚定(警告), 2=链异常。"""
+def _print_verify(store: EvidenceStore, db_path: str) -> int:
+    """verify 分级输出：
+      0 = 完整有效 + 锚定验证通过
+      1 = 链自洽但未锚定（锚定文件不存在），仅警告
+      2 = 链异常 或 锚定存在但密钥缺失（疑似人为破坏）
+    """
     events = store.all_events()
     ok, problems, total = store.verify()
     anchored = store.anchor is not None
     # 分离"未锚定"警告与真实异常
     real = [p for p in problems if not p.startswith("未锚定")]
+
+    # 4.2: 锚定文件存在 + 密钥缺失 = 强攻击信号（有人销毁验证能力）
+    state = anchor_state(db_path)
+    if state["has_anchor_file"] and not state["key_available"]:
+        print(f"✘ 严重: 锚定文件存在（{anchor_path_for(db_path)}）但签名密钥缺失")
+        print(f"   疑似人为破坏——证据链完整性已无法验证，请立即恢复密钥或对现场做镜像")
+        store.close()
+        return 2
+
     if ok:
         print(f"✔ 证据链完整有效: {total} 条事件，全部哈希验证通过")
         if anchored:
-            print(f"   🔐 外部锚定有效（genesis/tip/meta 均与签名一致）")
+            if state["key_location"] == "legacy":
+                print(f"   🔐 外部锚定有效（⚠ 密钥仍在库目录旧位置，建议迁移到用户配置目录: "
+                      f"{key_path_for(db_path)}）")
+            elif state["key_location"] == "env":
+                print("   🔐 外部锚定有效（密钥: 环境变量注入）")
+            elif state["key_location"] == "explicit":
+                print("   🔐 外部锚定有效（密钥: 显式路径）")
+            else:
+                print(f"   🔐 外部锚定有效（genesis/tip/meta 均与签名一致，密钥: 用户配置目录）")
         else:
             print(f"   ⚠ 未锚定: 只能防内部不一致，防不了整链重写/末尾截断/元信息篡改")
             print(f"     建议: agenttrace init --anchor 或重建库时启用锚定")
@@ -92,17 +124,17 @@ def _print_verify(store: EvidenceStore) -> int:
 
 def cmd_verify(args: argparse.Namespace) -> int:
     anchor_key = None
-    key_path = key_path_for(args.db)
+    key_path = resolve_key_path(args.db)
     if os.path.exists(key_path):
         anchor_key = AnchorKey.load(key_path)
     store = EvidenceStore(args.db, anchor_key=anchor_key)
-    return _print_verify(store)
+    return _print_verify(store, args.db)
 
 
 def cmd_record(args: argparse.Namespace) -> int:
-    # record 时加载锚定密钥以继续更新锚定（密钥默认在 <db>.anchor.key）
+    # record 时加载锚定密钥以继续更新锚定（新默认: 用户配置目录；兼容旧目录）
     anchor_key = None
-    key_path = key_path_for(args.db)
+    key_path = resolve_key_path(args.db)
     if os.path.exists(key_path):
         anchor_key = AnchorKey.load(key_path)
     store = EvidenceStore(args.db, anchor_key=anchor_key)
@@ -166,7 +198,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 
 def cmd_report(args: argparse.Namespace) -> int:
     anchor_key = None
-    key_path = key_path_for(args.db)
+    key_path = resolve_key_path(args.db)
     if os.path.exists(key_path):
         anchor_key = AnchorKey.load(key_path)
     store = EvidenceStore(args.db, anchor_key=anchor_key)

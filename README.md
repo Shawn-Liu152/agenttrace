@@ -48,10 +48,11 @@ python -m agenttrace report --db evidence.db --out report.html
 your_agent ... | python -m agenttrace record --stdin --db evidence.db
 ```
 
-> **密钥管理**：`--anchor` 会生成 `evidence.db.anchor.key`（0600 权限）。
-> 生产环境请通过 `AGENTTRACE_ANCHOR_KEY_HEX` / `AGENTTRACE_ANCHOR_KEY_PATH` 注入，
-> 并**与数据库分开保管**——密钥一旦泄露，攻击者可重签锚定、抹掉一切痕迹；
-> 密钥一旦丢失，证据链将永远无法再验证（这是安全信号，不是 bug）。
+> **密钥管理（v0.3.0 起）**：`--anchor` 把密钥写入**用户配置目录**，与数据库分离——
+>   Windows `%APPDATA%\agenttrace\keys\`，POSIX `~/.config/agenttrace/keys/`（按 db 路径哈希命名）。
+>   旧版（v0.2 及以前）位于库目录的密钥会自动回退兼容，`verify` 会提示迁移。
+>   也可以环境变量 `AGENTTRACE_ANCHOR_KEY_HEX` / `AGENTTRACE_ANCHOR_KEY_PATH` 注入。
+>   密钥一旦丢失，证据链将永远无法再验证（这是安全信号，不是 bug）。
 
 ---
 

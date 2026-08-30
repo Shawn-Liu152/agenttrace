@@ -221,6 +221,64 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_seal(args: argparse.Namespace) -> int:
+    """Ed25519 锚定（v0.4）：私钥只在签名端，公钥可分发给任何验证者。"""
+    from .anchor_v2 import (
+        ensure_ed25519_keypair, seal_anchor, verify_ed25519_anchor, anchor_state_v2,
+    )
+    if args.action == "keygen":
+        kp = ensure_ed25519_keypair(args.db, args.secret_path)
+        print(f"🔑 Ed25519 私钥已生成/加载（签名端保管，勿外传）")
+        print(f"   公钥: {kp.public_hex()}")
+        print(f"   公钥可自由分发给验证端；私钥泄露 = 可伪造锚定")
+        return 0
+
+    store = EvidenceStore(args.db)
+    events = store.all_events()
+    meta = store.all_meta()
+    if not events:
+        print("✘ 证据库为空，无法锚定", file=sys.stderr)
+        store.close()
+        return 1
+
+    if args.action == "seal":
+        kp = ensure_ed25519_keypair(args.db, args.secret_path)
+        rec = seal_anchor(args.db, events, meta, kp)
+        print(f"🔒 Ed25519 锚定已写入: {args.db}.anchor.json")
+        print(f"   seq_max={rec['seq_max']}  公钥={rec['public_key'][:16]}…")
+        print(f"   私钥位置: 用户配置目录（与库分离）；公钥可分发验证")
+        ok, problems = verify_ed25519_anchor(args.db, events, meta)
+        if ok:
+            print("✔ 锚定自验通过")
+            store.close()
+            return 0
+        print("✘ 锚定自验失败:", problems)
+        store.close()
+        return 2
+
+    if args.action == "verify":
+        st = anchor_state_v2(args.db)
+        expected = None
+        if args.public_key:
+            expected = args.public_key.strip()
+        ok, problems = verify_ed25519_anchor(args.db, events, meta, expected_public=expected)
+        if ok:
+            print(f"✔ Ed25519 锚定验证通过: {len(events)} 条事件（验证端无私钥也能验证）")
+            store.close()
+            return 0
+        if st["has_anchor_file"] and not st["has_secret"] and not any("签名" in p for p in problems):
+            print("✘ 严重: 锚定文件存在但签名私钥缺失（签名端）——疑似人为破坏")
+        else:
+            print("✘ Ed25519 锚定验证失败:")
+            for p in problems:
+                print(f"   - {p}")
+        store.close()
+        return 2
+    print(f"✘ 未知 seal 子命令: {args.action}", file=sys.stderr)
+    store.close()
+    return 1
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="agenttrace",
@@ -256,6 +314,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_rep.add_argument("--out", default="report.html", help="输出 HTML 路径")
     p_rep.add_argument("--title", default="AgentTrace 审计报告", help="报告标题")
 
+    p_seal = sub.add_parser("seal", help="Ed25519 外部锚定（v0.4）：keygen/seal/verify")
+    p_seal.add_argument("action", choices=["keygen", "seal", "verify"],
+                        help="keygen=生成密钥对, seal=签名当前链状态, verify=公钥验证")
+    p_seal.add_argument("--db", default=_default_db(), help="证据库路径")
+    p_seal.add_argument("--secret-path", default=None,
+                        help="Ed25519 私钥路径（默认用户配置目录；也可 AGENTTRACE_ED25519_SECRET_HEX/PATH）")
+    p_seal.add_argument("--public-key", default=None,
+                        help="verify 时期望的公钥（hex，来自可信渠道；不符 = 整库伪造信号）")
+
     args = parser.parse_args(argv)
     if not args.cmd:
         parser.print_help()
@@ -267,6 +334,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "verify": cmd_verify,
         "analyze": cmd_analyze,
         "report": cmd_report,
+        "seal": cmd_seal,
     }[args.cmd](args)
 
 

@@ -118,7 +118,27 @@ ev[i].prev_hash = ev[i-1].hash
 | ⚠️ 从未启用 --anchor 的库 | 只能防内部不一致，防不了整链重写；verify 会显式警告 |
 
 > 未锚定的库 `verify` 返回退出码 1（警告），已锚定且完整返回 0——不要忽略警告。
-> 生产/合规场景必须 `--anchor`，并考虑升级为 Ed25519 签名或 RFC3161 时间戳（架构兼容）。
+> 生产/合规场景必须 `--anchor`，或升级 **Ed25519 锚定**（见下）。
+
+### Ed25519 非对称锚定（v0.4，推荐对抗场景使用）
+
+HMAC 的固有矛盾：验证者必须持有签名密钥。Ed25519 根本性解决——**私钥只在签名端，公钥可自由分发**：
+
+```bash
+# 1. 生成密钥对（私钥存用户配置目录，与库分离；公钥文件自动导出）
+python -m agenttrace seal keygen --db evidence.db
+
+# 2. 采集完事件后签名当前链状态
+python -m agenttrace seal seal --db evidence.db
+
+# 3. 验证端（无私钥！）：公钥验证
+python -m agenttrace seal verify --db evidence.db
+# 合规/对抗场景：绑定可信渠道分发的公钥（不符 = 整库伪造信号）
+python -m agenttrace seal verify --db evidence.db --public-key <公钥hex>
+```
+
+攻击者即使重算整条链并用**自己的密钥**重签，绑定期望公钥的验证端也会检出
+「锚定公钥与期望公钥不符（整库伪造信号）」。
 
 ---
 
@@ -192,6 +212,7 @@ python -m agenttrace report --db demo.db --out report.html
 
 - [x] 证据链核心（SHA-256 链式哈希 + 篡改定位）
 - [x] 外部锚定（HMAC-SHA256 链尾签名：防整链重写/末尾截断/元信息篡改）
+- [x] Ed25519 非对称锚定（RFC 8032 纯 Python 实现：验证端无私钥验证 + 公钥绑定防伪造）
 - [x] SQLite 单文件证据库（拒覆盖写入）
 - [x] JSONL 批量 / stdin 实时流采集
 - [x] 风险分析（6 类规则，FP/FN 回归测试门禁）

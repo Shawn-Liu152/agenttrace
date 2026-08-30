@@ -3,6 +3,28 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0] - 2026-08-30
+
+### Ed25519 非对称锚定（复评 4.1 的根本解法）
+
+- **纯 Python Ed25519（RFC 8032）**：零依赖数字签名（SHA-512 + Edwards25519），
+  RFC 官方向量 T1-T4 全过，防篡改/防malleability 完整
+- **新命令 `seal`**：`seal keygen` / `seal seal` / `seal verify`——私钥只在签名端
+  （Agent 侧，用户配置目录，与库分离），公钥内嵌锚定文件、可自由分发
+- **验证端无私钥验证**：解决 HMAC"验证者必须持有签名密钥"的固有矛盾——
+  验证端被攻破也只能"验证"，无法伪造锚定
+- **`--public-key` 绑定**：verify 可传入可信渠道获得的期望公钥；锚定内嵌公钥
+  与其不符 = 整库伪造信号（攻击者重算链+自签也会被检出）
+- **meta 为空提示**（复评建议）：verify 对"meta 表为空但事件链非空"给出补录建议
+- 新增 `anchor_v2.py` + `ed25519.py` + `tests/test_ed25519_anchor.py`（10 用例）
+- 全部 61 测试通过
+
+### 已知边界（诚实声明）
+
+- `seal verify` 不带 `--public-key` 时只验证"签名与锚定内容自洽"——
+  攻击者若同时持有签名端私钥可以重签。**合规/对抗场景必须通过可信渠道
+  分发公钥并在验证时绑定**（`--public-key`）。
+
 ## [0.3.0] - 2026-08-30
 
 ### 安全加固（复评 4.1 / 4.2）

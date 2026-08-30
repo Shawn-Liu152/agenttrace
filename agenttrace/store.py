@@ -210,6 +210,12 @@ class EvidenceStore:
         """
         events = self.all_events()
         ok, problems = verify_chain(events)
+        # 复评建议：meta 表为空但事件链非空 → 元信息不受锚定保护，提示补录
+        if events and not self.all_meta():
+            problems.append(
+                "meta 表为空但事件链非空: 会话元信息（agent/model/工具清单）不受锚定保护，"
+                "建议用 set_meta 补录后重新锚定"
+            )
         if self.anchor is not None:
             aok, aproblems = self.anchor.verify(events, self.all_meta())
             if not aok:

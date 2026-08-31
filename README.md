@@ -59,6 +59,12 @@ python -m agenttrace tsa stamp --db evidence.db            # 默认 freetsa.org�
 python -m agenttrace tsa verify --db evidence.db           # 校验哈希绑定（篡改检出）
 ```
 
+> **tsa verify 的诚实边界（v1.0.1 起显式声明）**：本工具校验
+> `messageImprint` 绑定（锚定没被换）但**不验证 TSA 的 CMS 签名**（需
+> X.509/CA 链，超出零依赖范围）——`tsa verify` 成功输出总会伴随
+> `⚠ 未验证 TSA 的 CMS 签名` 警告与 `openssl ts -verify` 指引。法律级
+> 证明请用 openssl 验签（`-CAfile <tsa_cert.pem>`）。
+
 ### 接入真实 Agent 框架（v0.8 — 零依赖适配器）
 
 把 OpenAI / LangGraph 的运行时数据直接转成证据链（纯 dict 转换，不 import SDK）：
@@ -89,7 +95,8 @@ ingest_langgraph_state(store, [m.model_dump() for m in state["messages"]])
 | SQLite 库文件 | 10 万事件 | ~21.8 MB | — |
 
 批量模式 O(n²) → O(n)：`with store.batch(): ...` 内逐条 `append()`，
-commit 与锚定签名合并到块尾（语义与逐条一致，哈希链逐条构建）。
+commit 与锚定签名合并到块尾（语义与逐条一致，哈希链逐条构建）；
+**块内异常整体回滚**（取证"全有或全无"）。
 
 实时流模式（Agent 运行时边跑边取证）：
 

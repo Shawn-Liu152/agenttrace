@@ -3,6 +3,23 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.0.2] - 2026-08-31
+
+### 发布一致性收尾
+
+- **README 同步 v1.0.1 行为**：tsa verify 诚实边界示例（CMS 未验声明 +
+  openssl 指引）、batch 异常回滚说明
+- **打包双产物验证**：`python -m build` 生成 sdist + wheel，sdist 内容
+  完整（17 模块 + 11 测试 + LICENSE/README）；**从 sdist 全新 venv 安装**
+  冒烟通过（`agenttrace 1.0.1` console + 链验证 OK）
+- **SECURITY.md**：安全策略（支持版本 / 漏洞报告流程 48h 确认 / 攻击者
+  威胁模型）。核心是**已知边界表**：HMAC 密钥同获 / Ed25519 私钥泄露 /
+  TSA CMS 未验 / 纯 Python 常时性——全部明确为设计边界 + 缓解，并声明
+  "某路径输出像有效但实际未验证 = 必须报漏洞"（降级纪律的对外承诺）
+- **.gitattributes**：LF 统一入库，消除 Windows CRLF 警告；新增
+  `.db.anchor.tsq/.tsr/.tsa.json` 入 .gitignore
+- showcase 刷新（含时间戳产物）；114 测试全绿，攻击门禁 7/7
+
 ## [1.0.1] - 2026-08-31
 
 ### 复评 v1.0.0 修复（9.0 → 预期 9.5）

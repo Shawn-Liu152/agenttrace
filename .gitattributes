@@ -1,0 +1,23 @@
+# 规范行尾：文本文件统一 LF（仓库内），检出工作区按平台自动转换
+* text=auto
+
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.html text eol=lf
+*.csv text eol=lf
+
+# Windows 脚本保留 CRLF（.bat；本项目无，留作兼容）
+*.bat text eol=crlf
+
+# 二进制资源不转换
+*.db binary
+*.zip binary
+*.png binary
+*.ico binary
+*.key binary
+*.secret binary

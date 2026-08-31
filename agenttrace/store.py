@@ -84,11 +84,16 @@ class EvidenceStore:
                 for ev in many_events:
                     store.append(ev)
         batch 内外行为一致（append 仍逐条链式哈希、seq 连续），
-        只是把 I/O 与锚定签名合并到块尾。
+        只是把 I/O 与锚定签名合并到块尾。**块内抛异常时整体回滚**
+        （取证的"全有或全无"语义，复评 v1.0 P2）。
         """
         self._in_batch += 1
         try:
             yield self
+        except BaseException:
+            # 块内异常：回滚全部未提交数据（取证库不落半截数据）
+            self.conn.rollback()
+            raise
         finally:
             self._in_batch -= 1
             if self._in_batch == 0:

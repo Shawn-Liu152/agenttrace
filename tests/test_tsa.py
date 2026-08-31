@@ -220,3 +220,36 @@ class TestStampVerify(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+class TestForgedTsrFlagged(unittest.TestCase):
+    """复评 P0：无签名的伪造 TSR 必须被显式标记（不能只报"绑定有效"）。"""
+
+    def test_forged_tsr_verify_ok_but_cli_flags_cms(self):
+        """验证 CLI 输出：伪造 TSR（自造 DER 无签名）verify 通过但带 CMS 警告。"""
+        import subprocess
+        import tempfile
+        tmp = tempfile.mkdtemp()
+        db = os.path.join(tmp, "ev.db")
+        build_anchored_db(db)
+        h = tsa._anchor_hash(db)
+        # 攻击者自造 TSR：正确 DER + granted + imprint 填对 + 无签名
+        forged = make_fake_tsr(h, gen_time="19980101000000Z")
+        with open(db + ".anchor.tsq", "wb") as f:
+            f.write(tsa.build_tsq(h))
+        with open(db + ".anchor.tsr", "wb") as f:
+            f.write(forged)
+        with open(db + ".anchor.tsa.json", "w", encoding="utf-8") as f:
+            json.dump({"forged": True}, f)
+        # module verify：绑定本身通过（这是设计边界）
+        ok, problems = tsa.verify(db)
+        self.assertTrue(ok, problems)
+        # CLI 输出必须显式声明 CMs 签名未验证
+        from agenttrace import __main__ as _m  # noqa
+        env = {**os.environ, "PYTHONPATH": __import__("os").path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))}
+        r = subprocess.run([sys.executable, "-m", "agenttrace", "tsa", "verify",
+                            "--db", db], capture_output=True, text=True,
+                           env=env, cwd=tmp, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("未验证 TSA 的 CMS 签名", r.stdout)
+        self.assertIn("openssl ts -verify", r.stdout)

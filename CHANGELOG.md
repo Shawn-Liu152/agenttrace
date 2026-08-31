@@ -3,6 +3,33 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.0.1] - 2026-08-31
+
+### 复评 v1.0.0 修复（9.0 → 预期 9.5）
+
+**P0 — TSA 伪造时间戳不再沉默**（降级纪律第四条案例）
+- `tsa verify` 成功输出新增：`⚠ 未验证 TSA 的 CMS 签名——本校验不能证明
+  时间戳来自真实 TSA` + `openssl ts -verify` 法律级证明指引
+- 新增 `test_forged_tsr_verify_ok_but_cli_flags_cms` 钉住边界
+
+**P1 — verify 锚定体系分派**（Ed25519 库不再误报"疑似人为破坏"）
+- `_print_verify` 先读锚定文件判 `algo`：`ed25519` → 输出"🔐 Ed25519
+  外部锚定，公钥验证请用 seal verify"（纯链校验，不掺 v1 逻辑）；
+  只有确认 HMAC 体系（v1/无标识/损坏）且密钥缺失才报强信号
+- 修复路径 B（HMAC 后 seal 覆盖 → 原报"锚定记录缺少 mac"）
+- 新增 `tests/test_verify_dispatch.py` 覆盖三条路径（纯 Ed25519 /
+  HMAC→Ed25519 覆盖 / HMAC 密钥删除仍强信号）——误报和漏报都不允许
+
+**P2 — batch 异常回滚 + 未锚定导出告警**
+- `batch()` 块内异常 → `rollback()`（取证"全有或全无"）；测试更新断言
+- `bundle export` 未锚定库 → 显式 `⚠ 未锚定证据库` 告警（上轮遗留项）
+
+**P3 — CONTRIBUTING 头号纪律**（上轮遗留项）
+- 新增"降级必须显式声明（Mandatory Degradation Disclosure）"章节：
+  4 次评审案例表 + 新增功能五问 + 降级路径测试门禁要求
+
+全量 **114 测试**（+4），`tsa verify`/`verify`/`bundle export` 实测通过。
+
 ## [1.0.0] - 2026-08-31
 
 ### 发布里程碑：性能、真实 TSA、打包、多平台 CI

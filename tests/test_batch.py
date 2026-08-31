@@ -86,8 +86,8 @@ class TestBatchMode(unittest.TestCase):
             self.assertEqual(evs[i]["seq"], evs[i - 1]["seq"] + 1)
         s.close()
 
-    def test_batch_exception_commits_cleanly(self):
-        """异常时块尾 finally 仍 commit——已插数据落库，链保持正确。"""
+    def test_batch_exception_rolls_back(self):
+        """复评 v1.0 P2：块内异常 → 整体回滚（取证"全有或全无"）。"""
         db = os.path.join(self.tmp, "e.db")
         s = EvidenceStore(db)
         with self.assertRaises(RuntimeError):
@@ -96,7 +96,8 @@ class TestBatchMode(unittest.TestCase):
                 raise RuntimeError("boom")
         s.append(make_user_message("after"))
         evs = s.all_events()
-        self.assertEqual(len(evs), 2)  # finally 已 commit，'ok' 落库
+        self.assertEqual(len(evs), 1)  # 事务回滚，'ok' 未落库
+        self.assertEqual(evs[0]["content"], "after")
         ok, problems, _ = s.verify()
         self.assertTrue(ok, problems)
         s.close()

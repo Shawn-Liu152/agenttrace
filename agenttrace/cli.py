@@ -78,7 +78,7 @@ def _print_verify(store: EvidenceStore, db_path: str) -> int:
     """verify 分级输出：
       0 = 完整有效 + 锚定验证通过
       1 = 链自洽但未锚定（锚定文件不存在），仅警告
-      2 = 链异常 或 锚定存在但密钥缺失（疑似人为破坏）
+      2 = 链异常 或 确认的 HMAC 锚定损坏/密钥被销毁（疑似人为破坏）
     """
     events = store.all_events()
     ok, problems, total = store.verify()
@@ -86,9 +86,37 @@ def _print_verify(store: EvidenceStore, db_path: str) -> int:
     # 分离"未锚定"警告与真实异常
     real = [p for p in problems if not p.startswith("未锚定")]
 
-    # 4.2: 锚定文件存在 + 密钥缺失 = 强攻击信号（有人销毁验证能力）
+    # 复评 v1.0 P1：锚定体系分派——同一文件路径下先判 version/algo
     state = anchor_state(db_path)
-    if state["has_anchor_file"] and not state["key_available"]:
+    anchor_kind = None
+    if state["has_anchor_file"]:
+        try:
+            with open(anchor_path_for(db_path), encoding="utf-8") as f:
+                rec = json.load(f)
+            anchor_kind = rec.get("algo") or (f"v{rec.get('version', 1)}")
+        except (json.JSONDecodeError, OSError):
+            anchor_kind = "broken"
+
+    if anchor_kind == "ed25519":
+        # v2 Ed25519 锚定：verify 走 seal verify 语义，绝不判"人为破坏"。
+        # 注意：此时不能用 store.verify()（它按 v1/HMAC 逻辑校验会误报"缺 mac"），
+        # 只做纯哈希链校验（Ed25519 签名校验交给 seal verify）。
+        from .chain import verify_chain as _vc
+        chain_ok, chain_problems = _vc(events)
+        if chain_ok:
+            print(f"✔ 证据链完整有效: {total} 条事件，全部哈希验证通过")
+            print(f"   🔐 Ed25519 外部锚定（公钥验证请用: "
+                  f"agenttrace seal verify --db {db_path} --public-key <hex>）")
+            store.close()
+            return 0
+        print(f"✘ 证据链异常: {len(chain_problems)} 处问题")
+        for p in chain_problems:
+            print(f"   - {p}")
+        store.close()
+        return 2
+
+    # 4.2/复评 P1：只有确认是 v1 HMAC 体系时才报"疑似人为破坏"
+    if state["has_anchor_file"] and not state["key_available"] and anchor_kind in (None, "v1", "broken"):
         print(f"✘ 严重: 锚定文件存在（{anchor_path_for(db_path)}）但签名密钥缺失")
         print(f"   疑似人为破坏——证据链完整性已无法验证，请立即恢复密钥或对现场做镜像")
         store.close()
@@ -260,7 +288,10 @@ def cmd_tsa(args: argparse.Namespace) -> int:
     if args.action == "verify":
         ok, problems = verify(args.db)
         if ok:
-            print(f"✔ 时间戳绑定有效: 当前锚定哈希与 TSA 回显一致")
+            print("✔ 时间戳绑定有效: messageImprint 与当前锚定哈希一致")
+            print("⚠ 未验证 TSA 的 CMS 签名——本校验不能证明时间戳来自真实 TSA")
+            print(f"   如需法律级证明: openssl ts -verify -data {args.db}.anchor.tsq "
+                  f"-in {args.db}.anchor.tsr -CAfile <tsa_cert.pem>")
             return 0
         print(f"✘ 时间戳验证失败: {len(problems)} 处问题")
         for p in problems:
@@ -346,6 +377,11 @@ def cmd_bundle(args: argparse.Namespace) -> int:
             print(f"✘ 导出失败: {e}", file=sys.stderr)
             return 1
         size = os.path.getsize(out)
+        # 复评 v1.0 P2：未锚定库导出必须显式告警（降级绝不静默）
+        anchor_path = args.db + ".anchor.json"
+        if not os.path.exists(anchor_path):
+            print("⚠ 未锚定证据库: 包内证据链只能自洽校验，无法对抗整链重写/末尾截断")
+            print(f"   建议: agenttrace init --anchor 重建，或 seal seal 后重新导出")
         print(f"📦 证据包已导出: {out} ({size:,} bytes)")
         print(f"   解包后: python -m agenttrace bundle verify-manifest <目录>")
         print(f"           python -m agenttrace verify --db <目录>/evidence.db")

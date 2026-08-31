@@ -22,7 +22,7 @@
   `agenttrace` console 入口冒烟（init/record/verify/analyze 全链路）
 - **CI 三平台矩阵**：ubuntu/windows/macos × Python 3.9/3.11/3.13；
   新增性能回归门禁（5 万事件 <3s）与打包安装冒烟 job
-- 全量 **111 测试**（103 + batch 5 + adapters 2 + tsa 结构重构回归）
+- 全量 **110 测试**（103 + batch 5 + adapters 2）
 
 ## [0.9.0] - 2026-08-31
 

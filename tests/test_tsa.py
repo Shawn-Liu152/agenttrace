@@ -30,13 +30,36 @@ def make_tst_info(data_hash: bytes, gen_time: str = "20260831120000Z") -> bytes:
 
 
 def make_fake_tsr(data_hash: bytes, status: int = 0, gen_time: str = "20260831120000Z") -> bytes:
-    """构造合法结构的 TSR（无真实 CMS 签名——mock 用）。"""
+    """构造结构完整的 TSR（CMS SignedData 外壳，mock 用，无真实签名）。
+
+    结构（与真实 TSA 一致）：
+      TimeStampResp ::= SEQUENCE {
+        status        PKIStatusInfo,
+        token         ContentInfo { contentType=signedData,
+                                    [0]{ SignedData {
+                                      version, digestAlgorithms,
+                                      encapContentInfo { eContentType=id-ct-TSTInfo,
+                                                          [0]{ OCTET STRING { TSTInfo } } },
+                                      certificates?, signerInfos } } } }
+    """
+    tst_info = make_tst_info(data_hash, gen_time)
     status_info = tsa.der_sequence(tsa.der_integer(status))
-    # ContentInfo 外壳：SEQUENCE { version, SEQUENCE{ContentType OID}, [0]{ TSTInfo } }
-    cms_inner = (tsa.der_integer(1)
-                 + tsa.der_sequence(bytes([0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02]))
-                 + tsa.der_tlv(0xA0, tsa.der_tlv(0x30, make_tst_info(data_hash, gen_time))))
-    token = tsa.der_sequence(tsa.der_integer(1) + tsa.der_sequence(cms_inner))
+    # SignedData 必要字段（version=3 + digestAlgorithms 空 SET +
+    # encapContentInfo + signerInfos 空 SET）
+    signed_data = (
+        tsa.der_integer(3)
+        + tsa.der_tlv(tsa.TAG_SET, b"")                       # digestAlgorithms
+        + tsa.der_sequence(                                    # encapContentInfo
+            bytes([0x06, 0x0B, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x01, 0x04])
+            + tsa.der_tlv(0xA0, tsa.der_tlv(tsa.TAG_OCTET_STRING, tst_info))
+        )
+        + tsa.der_tlv(tsa.TAG_SET, b"")                       # signerInfos（空，mock）
+    )
+    content_info = (
+        bytes([0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02])
+        + tsa.der_tlv(0xA0, tsa.der_sequence(signed_data))    # contentType=signedData
+    )
+    token = tsa.der_sequence(content_info)
     return tsa.der_sequence(status_info + token)
 
 

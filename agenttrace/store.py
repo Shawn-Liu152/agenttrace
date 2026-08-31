@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 
 from .chain import append_event, verify_chain
@@ -65,6 +66,41 @@ class EvidenceStore:
         self.anchor: Optional[Anchor] = None
         if anchor_key is not None:
             self.anchor = Anchor(path, anchor_key)
+        # 批量模式（batch()）：延迟 commit + 链尾缓存 + 锚定合并更新
+        self._in_batch = 0
+        self._tail_cache: Optional[List[Dict[str, Any]]] = None
+        self._anchor_dirty = False
+
+    # ------------------------------------------------------------------
+    # 批量模式（v1.0 性能优化：10 万事件从 92s → 秒级）
+    # ------------------------------------------------------------------
+
+    @contextmanager
+    def batch(self):
+        """批量追加：结束统一 commit + 锚定更新一次（O(n) 替代 O(n²)）。
+
+        用法：
+            with store.batch():
+                for ev in many_events:
+                    store.append(ev)
+        batch 内外行为一致（append 仍逐条链式哈希、seq 连续），
+        只是把 I/O 与锚定签名合并到块尾。
+        """
+        self._in_batch += 1
+        try:
+            yield self
+        finally:
+            self._in_batch -= 1
+            if self._in_batch == 0:
+                self.conn.commit()
+                if self.anchor is not None and self._anchor_dirty:
+                    self.anchor.update(self.all_events(), self.all_meta())
+                    self._anchor_dirty = False
+                self._tail_cache = None
+
+    def _maybe_commit(self) -> None:
+        if self._in_batch == 0:
+            self.conn.commit()
 
     # ------------------------------------------------------------------
     # 追加
@@ -86,9 +122,15 @@ class EvidenceStore:
         chain = self.tail_chain()
         ev = append_event(chain, raw_event)
         self._insert_event(ev)
-        self.conn.commit()
-        if self.anchor is not None:
-            self.anchor.update(self.all_events(), self.all_meta())
+        self._maybe_commit()
+        if self._in_batch > 0:
+            # 批量：链尾缓存 + 锚定延迟到块尾
+            self._tail_cache = [ev]
+            if self.anchor is not None:
+                self._anchor_dirty = True
+        else:
+            if self.anchor is not None:
+                self.anchor.update(self.all_events(), self.all_meta())
         return ev
 
     def _insert_event(self, ev: Dict[str, Any]) -> None:
@@ -160,6 +202,8 @@ class EvidenceStore:
 
     def tail_chain(self) -> List[Dict[str, Any]]:
         """返回最近一条（或空），用于链式追加。"""
+        if self._tail_cache is not None:
+            return self._tail_cache
         rows = self.conn.execute(
             "SELECT * FROM events ORDER BY seq DESC LIMIT 1"
         ).fetchall()

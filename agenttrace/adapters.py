@@ -334,3 +334,88 @@ def ingest_langgraph_state(
                           tool_calls: [...], name: "tool名", id: ...}
     """
     return ingest_messages(store, messages, agent=agent, model=model)
+
+
+# ---------------------------------------------------------------------------
+# Anthropic Messages API（v1.0）
+# ---------------------------------------------------------------------------
+
+# content blocks 类型标记
+_ANTHROPIC_TOOL_USE = "tool_use"
+_ANTHROPIC_TOOL_RESULT = "tool_result"
+
+
+def _anthropic_content_events(content: Any, ts: float) -> List[Dict[str, Any]]:
+    """Anthropic content blocks → 事件。
+
+    user:   [{type:"text", text:"..."}, {type:"tool_result", tool_use_id, content}]
+    assistant: [{type:"text", text:"..."}, {type:"tool_use", id, name, input}]
+    """
+    events: List[Dict[str, Any]] = []
+    if not isinstance(content, list):
+        return events
+    for blk in content:
+        if not isinstance(blk, dict):
+            continue
+        bt = blk.get("type")
+        if bt == _ANTHROPIC_TOOL_USE:
+            name = blk.get("name") or "tool"
+            args = blk.get("input") or {}
+            ev = make_tool_call(name, args, ts=ts)
+            if blk.get("id"):
+                _attach_tool_id(ev, blk["id"])
+            events.append(ev)
+        elif bt == _ANTHROPIC_TOOL_RESULT:
+            out = blk.get("content")
+            if isinstance(out, list):
+                out = json.dumps(out, ensure_ascii=False)
+            events.append(make_tool_result("tool", str(out or ""), ts=ts))
+        else:  # text / thinking 等
+            txt = blk.get("text") or blk.get("thinking") or ""
+            if txt:
+                events.append(make_agent_message(str(txt), ts=ts))
+    return events
+
+
+def ingest_anthropic_messages(
+    store: EvidenceStore,
+    messages: List[Dict[str, Any]],
+    agent: str = "agent",
+    model: str = "",
+) -> int:
+    """摄入 Anthropic Messages API 消息数组（零依赖：纯 dict 转换）。
+
+    Anthropic 消息形如:
+      {"role": "user"|"assistant", "content": [{"type":"text"|"tool_use"|"tool_result", ...}]}
+    """
+    n = 0
+    r = Recorder(store)
+    if store.count() == 0:
+        store.set_meta("agent", agent)
+        if model:
+            store.set_meta("model", model)
+        r.ingest(make_session_start(agent=agent, model=model or "unknown",
+                                    tools=["anthropic"]))
+        n += 1
+    base = time.time() - len(messages)
+    for i, msg in enumerate(messages, start=1):
+        ts = base + i
+        content = msg.get("content", "")
+        if msg.get("role") == "assistant":
+            for ev in _anthropic_content_events(content, ts):
+                r.ingest(ev)
+                n += 1
+        elif msg.get("role") == "user":
+            # user content: 文本 + tool_result 混合
+            evs = _anthropic_content_events(content, ts)
+            if evs:
+                for ev in evs:
+                    r.ingest(ev)
+                    n += 1
+            else:
+                r.ingest(make_user_message(_content_to_text(content), ts=ts))
+                n += 1
+        else:
+            r.ingest(make_agent_message("[system] " + _content_to_text(content), ts=ts))
+            n += 1
+    return n

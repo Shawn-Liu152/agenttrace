@@ -151,3 +151,44 @@ class TestOpenAIResponsesStream(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+class TestAnthropicMessages(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp()
+        from agenttrace.adapters import ingest_anthropic_messages
+        self.ingest = ingest_anthropic_messages
+        from agenttrace.store import EvidenceStore
+        self.store = EvidenceStore(os.path.join(self.tmp, "a.db"))
+
+    def test_anthropic_tool_use_and_result(self):
+        msgs = [
+            {"role": "user", "content": [{"type": "text", "text": "查一下"}]},
+            {"role": "assistant", "content": [
+                {"type": "text", "text": "我来查"},
+                {"type": "tool_use", "id": "tu_1", "name": "weather",
+                 "input": {"city": "北京"}},
+            ]},
+            {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "tu_1", "content": "晴 25°C"},
+            ]},
+            {"role": "assistant", "content": [{"type": "text", "text": "明天也晴"}]},
+        ]
+        n = self.ingest(self.store, msgs, agent="claude-agent", model="claude-4")
+        evs = self.store.all_events()
+        self.assertEqual(n, len(evs))
+        types = [e["type"] for e in evs]
+        self.assertEqual(types.count("tool_call"), 1)
+        self.assertEqual(types.count("tool_result"), 1)
+        tc = next(e for e in evs if e["type"] == "tool_call")
+        self.assertEqual(tc["content"]["name"], "weather")
+        self.assertEqual(tc["content"]["arguments"], {"city": "北京"})
+        self.assertEqual(tc["content"].get("tool_call_id"), "tu_1")
+        ok, problems, _ = self.store.verify()
+        self.assertTrue(ok, problems)
+
+    def test_anthropic_empty_user(self):
+        msgs = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "ok"}]
+        n = self.ingest(self.store, msgs, agent="a")
+        evs = self.store.all_events()
+        self.assertGreaterEqual(len([e for e in evs if e["type"] == "user_message"]), 1)

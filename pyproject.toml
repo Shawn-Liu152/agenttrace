@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agenttrace"
-version = "0.9.0"
+version = "1.0.0"
 description = "AI Agent 取证审计工具 — 防篡改证据链（外部锚定）+ 风险分析 + 时间线回放报告"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,7 +12,7 @@ license = { file = "LICENSE" }
 authors = [{ name = "AgentTrace contributors" }]
 keywords = ["agent", "forensics", "audit", "hash-chain", "llm", "security"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",

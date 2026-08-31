@@ -79,6 +79,18 @@ ingest_langgraph_state(store, [m.model_dump() for m in state["messages"]])
 
 详见 `examples/adapter_demo.py`（两种格式 + 链验证 + 风险检出 + 报告全流程）。
 
+### 性能（v1.0 实测，`tools/benchmark.py`）
+
+| 场景 | 数据量 | 耗时 | 吞吐 |
+|---|---|---|---|
+| 批量摄入（`store.batch()`） | 10 万事件 | **1.17s** | 85,453 条/s |
+| 全链 verify | 10 万事件 | ~1.0s | — |
+| 风险扫描 analyze | 10 万事件 | ~5.6s | — |
+| SQLite 库文件 | 10 万事件 | ~21.8 MB | — |
+
+批量模式 O(n²) → O(n)：`with store.batch(): ...` 内逐条 `append()`，
+commit 与锚定签名合并到块尾（语义与逐条一致，哈希链逐条构建）。
+
 实时流模式（Agent 运行时边跑边取证）：
 
 ```bash

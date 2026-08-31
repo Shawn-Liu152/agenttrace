@@ -3,6 +3,27 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.0.0] - 2026-08-31
+
+### 发布里程碑：性能、真实 TSA、打包、多平台 CI
+
+- **性能优化 79 倍**：`EvidenceStore.batch()` 批量模式（延迟 commit +
+  链尾缓存 + 锚定合并更新，O(n²) → O(n)）——10 万事件追加从 92.5s
+  降到 **1.17s（85,453 条/s）**；verify 10 万条 ~1s；新增
+  `tests/test_batch.py`（5 用例）+ `tools/benchmark.py` 性能门禁
+- **真实 TSA 打通**：`tsa.py` TSTInfo 定位改为按 `id-ct-TSTInfo` OID
+  锚点解析（真实 TSR 的 TSTInfo 被 CMS 包在 OCTET STRING 内，盲扫会
+  误中签名区）——公共 freetsa.org 实测 **granted + genTime + 哈希绑定
+  全部正确**；mock TSR 同步升级为真实 CMS SignedData 结构
+- **Anthropic 适配器**：`ingest_anthropic_messages()`——tool_use /
+  tool_result content blocks 转换（tool_call_id 入 content），
+  `tests/test_adapters.py` +2 用例
+- **打包发布验证**：pip wheel 构建 + 隔离 venv 安装 +
+  `agenttrace` console 入口冒烟（init/record/verify/analyze 全链路）
+- **CI 三平台矩阵**：ubuntu/windows/macos × Python 3.9/3.11/3.13；
+  新增性能回归门禁（5 万事件 <3s）与打包安装冒烟 job
+- 全量 **111 测试**（103 + batch 5 + adapters 2 + tsa 结构重构回归）
+
 ## [0.9.0] - 2026-08-31
 
 ### RFC3161 时间戳锚定（路线图收官项：tsa）

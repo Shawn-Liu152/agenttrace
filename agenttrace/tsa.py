@@ -179,38 +179,83 @@ _STATUS_NAMES = {
 }
 
 
-def _scan_der(buf: bytes, tag_pred) -> Optional[bytes]:
-    """深度优先扫描 DER 子树（零个或多个 TLV 序列），返回第一个满足 tag 的 payload。"""
-    off = 0
-    while off < len(buf):
-        try:
-            t, val, off = _parse_tlv(buf, off)
-        except ValueError:
-            return None
-        if tag_pred(t):
-            return val
-        # 构造类标签（SEQUENCE/SET/context [0]0xA0 等）继续深入 payload
-        if t in (TAG_SEQUENCE, TAG_SET) or t >= 0xA0:
-            found = _scan_der(val, tag_pred)
-            if found is not None:
-                return found
-    return None
+# id-ct-TSTInfo OID 的 value（1.2.840.113549.1.9.16.1.4）
+# 完整 TLV: 06 0b 2a 86 48 86 f7 0d 01 09 10 01 04
+_TSTINFO_OID_VALUE = bytes.fromhex("2a864886f70d0109100104")
+
+
+def _extract_tst_info(token_payload: bytes) -> Optional[bytes]:
+    """定位 TSTInfo：找 eContentType=id-ct-TSTInfo 的 [0]{OCTET STRING{TSTInfo}}。
+
+    真实 TSA 的 TSR 中 TSTInfo 被 CMS 包在 OCTET STRING 里（并可能有
+    BER 展开），直接扫描 OCTET STRING 会误中签名区；用 OID 做锚点最稳。
+    """
+    def find(buf: bytes) -> Optional[bytes]:
+        off = 0
+        while off < len(buf):
+            try:
+                t, v, off = _parse_tlv(buf, off)
+            except ValueError:
+                return None
+            if t == TAG_OID and v == _TSTINFO_OID_VALUE:
+                # 下一个元素应为 [0] { OCTET STRING { TSTInfo } }
+                rest = buf[off:]
+                try:
+                    t1, v1, _ = _parse_tlv(rest, 0)
+                    if t1 == 0xA0:
+                        t2, v2, _ = _parse_tlv(v1, 0)
+                        if t2 == TAG_OCTET_STRING:
+                            return v2
+                except ValueError:
+                    pass
+            if t in (TAG_SEQUENCE, TAG_SET) or t >= 0xA0:
+                sub = find(v)
+                if sub is not None:
+                    return sub
+        return None
+    return find(token_payload)
 
 
 def _parse_gen_time(token_payload: bytes) -> Optional[str]:
-    """递归提取 genTime（UTC/Generalized 时间）。"""
-    found = _scan_der(token_payload, lambda t: t in (TAG_GENERALIZED_TIME, TAG_UTC_TIME))
-    if found is None:
+    """从 TSTInfo 中提取 genTime（UTC/Generalized 时间，按结构第 5 字段取）。"""
+    tst = _extract_tst_info(token_payload)
+    if tst is None:
         return None
-    return found.decode("utf-8", errors="replace")
+    try:
+        t, tst_val, _ = _parse_tlv(tst, 0)
+        if t != TAG_SEQUENCE:
+            return None
+        children = der_parse_children(tst_val)
+        if len(children) < 5:
+            return None
+        gt_tag, gt_val = children[4]
+        if gt_tag in (TAG_GENERALIZED_TIME, TAG_UTC_TIME):
+            return gt_val.decode("utf-8", errors="replace")
+        return None
+    except ValueError:
+        return None
 
 
 def _parse_imprint_inside_token(token_payload: bytes) -> Optional[bytes]:
-    """递归提取 messageImprint.hashedMessage（32 字节哈希）。"""
-    found = _scan_der(token_payload, lambda t: t == TAG_OCTET_STRING)
-    if found is not None and len(found) == 32:
-        return found
-    return None
+    """从 TSTInfo.messageImprint.hashedMessage 提取 32 字节哈希（按结构取）。"""
+    tst = _extract_tst_info(token_payload)
+    if tst is None:
+        return None
+    try:
+        t, tst_val, _ = _parse_tlv(tst, 0)
+        if t != TAG_SEQUENCE:
+            return None
+        children = der_parse_children(tst_val)
+        if len(children) < 3:
+            return None
+        # children[2] = (TAG_SEQUENCE, messageImprint 的 payload)
+        mi_fields = der_parse_children(children[2][1])
+        for sub_tag, sub_val in mi_fields:
+            if sub_tag == TAG_OCTET_STRING and len(sub_val) == 32:
+                return sub_val
+        return None
+    except ValueError:
+        return None
 
 
 def parse_tsr(tsr: bytes) -> Dict[str, Any]:

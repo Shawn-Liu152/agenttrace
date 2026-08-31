@@ -90,6 +90,7 @@ def export_bundle(
     db_path: str,
     out_path: str,
     title: str = "AgentTrace 审计报告",
+    redact: bool = False,
 ) -> str:
     """导出证据包 zip。返回包路径。
 
@@ -112,7 +113,7 @@ def export_bundle(
     findings = analyze_chain(events)
     anchored = os.path.exists(db_path + ".anchor.json")
     render_report_file(events, findings, meta, tmp_report, title=title,
-                       anchored=anchored if anchored else None)
+                       anchored=anchored if anchored else None, redact=redact)
 
     try:
         bundle_files = _collect_bundle_files(db_path, tmp_report)

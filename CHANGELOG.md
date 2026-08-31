@@ -3,6 +3,20 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.6.0] - 2026-08-30
+
+### 报告脱敏（路线图项：--redact）
+
+- **`report --redact`**：报告中的密钥（sk-/ghp_/AKIA/PEM/hex 密钥语境/bearer）
+  与 PII（手机号/身份证/银行卡）打码——保留首 4 尾 2 字符便于定位，
+  短串全遮；`bundle export --redact` 同样生效（证据库/锚定本体不变）
+- **渲染层脱敏设计**：打码只作用于展示文本，证据库原始内容保持原样
+  （证据是链上事实，篡改它才是犯罪）——测试固定该边界
+- 复用 analyzer 的 secret/pii 正则作为单一事实来源，新增
+  `redact_text()` / `_redact_event()` / `_redact_finding()`
+- 新增 `tests/test_redact.py`（11 用例：打码/保留定位/不误伤短串/
+  正常文本不变/证据库不动/HTML 无泄漏）；全量 81 测试
+
 ## [0.5.0] - 2026-08-30
 
 ### 证据包导出（路线图项：证据包归档）

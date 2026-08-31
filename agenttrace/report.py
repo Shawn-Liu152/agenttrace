@@ -16,7 +16,7 @@ import json
 import time
 from typing import Any, Dict, List, Optional
 
-from .analyzer import analyze_chain, summarize, Finding
+from .analyzer import analyze_chain, summarize, Finding, redact_text
 from .chain import verify_chain
 
 # ---------------------------------------------------------------------------
@@ -50,6 +50,29 @@ SEV_COLORS = {"high": "#ef4444", "medium": "#f59e0b", "low": "#3b82f6"}
 
 def _esc(v: Any) -> str:
     return html.escape(str(v), quote=True)
+
+
+# 渲染层脱敏辅助（--redact）：只对展示文本打码，不改证据本体
+def _redact_value(v: Any) -> Any:
+    if isinstance(v, str):
+        return redact_text(v)
+    if isinstance(v, dict):
+        return {k: _redact_value(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_redact_value(x) for x in v]
+    return v
+
+
+def _redact_event(ev: Dict[str, Any]) -> Dict[str, Any]:
+    e = dict(ev)
+    e["content"] = _redact_value(ev.get("content"))
+    return e
+
+
+def _redact_finding(f: Finding) -> Finding:
+    f.title = redact_text(f.title)
+    f.detail = redact_text(f.detail)
+    return f
 
 
 def _fmt_ts(ts: float) -> str:
@@ -90,8 +113,13 @@ def generate_report(
     title: str = "AgentTrace 审计报告",
     anchored: Optional[bool] = None,
     anchor_info: str = "",
+    redact: bool = False,
 ) -> str:
-    """生成完整 HTML 报告字符串。"""
+    """生成完整 HTML 报告字符串。redact=True 时对事件内容与风险上下文打码。"""
+    if redact:
+        # 渲染层脱敏：证据库本体不动，只对展示文本打码（证据是链上事实）
+        events = [_redact_event(e) for e in events]
+        findings = [_redact_finding(f) for f in findings]
     total = len(events)
     tool_calls = sum(1 for e in events if e.get("type") == "tool_call")
     errors = sum(1 for e in events if e.get("type") == "error")
@@ -341,11 +369,12 @@ def render_report_file(
     title: str = "AgentTrace 审计报告",
     anchored: Optional[bool] = None,
     anchor_info: str = "",
+    redact: bool = False,
 ) -> str:
-    """生成报告并写入文件，返回写入路径。"""
+    """生成报告并写入文件，返回写入路径。redact=True 时打码密钥/PII。"""
     chain_ok, chain_problems = verify_chain(events)
     html_str = generate_report(events, findings, meta, chain_ok, chain_problems, title,
-                               anchored=anchored, anchor_info=anchor_info)
+                               anchored=anchored, anchor_info=anchor_info, redact=redact)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html_str)
     return out_path

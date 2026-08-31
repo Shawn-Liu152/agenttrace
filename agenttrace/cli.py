@@ -215,7 +215,8 @@ def cmd_report(args: argparse.Namespace) -> int:
         aok, aproblems = store.anchor.verify(events, store.all_meta())
         anchor_info = "锚定有效" if aok else ("锚定异常: " + "; ".join(aproblems[:2]))
     out = render_report_file(events, findings, meta, args.out, title=args.title,
-                             anchored=anchored, anchor_info=anchor_info)
+                             anchored=anchored, anchor_info=anchor_info,
+                             redact=args.redact)
     print(f"✔ 报告已生成: {out}")
     store.close()
     return 0
@@ -292,7 +293,7 @@ def cmd_bundle(args: argparse.Namespace) -> int:
     if args.action == "export":
         out_path = args.out or (os.path.splitext(args.db)[0] + "-bundle.zip")
         try:
-            out = export_bundle(args.db, out_path, title=args.title)
+            out = export_bundle(args.db, out_path, title=args.title, redact=args.redact)
         except (FileNotFoundError, ValueError) as e:
             print(f"✘ 导出失败: {e}", file=sys.stderr)
             return 1
@@ -349,6 +350,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_rep.add_argument("--db", default=_default_db(), help="证据库路径")
     p_rep.add_argument("--out", default="report.html", help="输出 HTML 路径")
     p_rep.add_argument("--title", default="AgentTrace 审计报告", help="报告标题")
+    p_rep.add_argument("--redact", action="store_true",
+                       help="脱敏：报告中的密钥/PII 打码（证据库本体不变）")
 
     p_seal = sub.add_parser("seal", help="Ed25519 外部锚定（v0.4）：keygen/seal/verify")
     p_seal.add_argument("action", choices=["keygen", "seal", "verify"],
@@ -367,6 +370,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_bundle.add_argument("--db", default=_default_db(), help="证据库路径（export 用）")
     p_bundle.add_argument("--out", default=None, help="导出 zip 路径（默认 evidence-bundle.zip）")
     p_bundle.add_argument("--title", default="AgentTrace 审计报告", help="包内报告标题")
+    p_bundle.add_argument("--redact", action="store_true",
+                          help="包内报告脱敏（证据库/锚定本体不变）")
 
     args = parser.parse_args(argv)
     if not args.cmd:

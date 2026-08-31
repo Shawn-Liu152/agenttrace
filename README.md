@@ -40,9 +40,13 @@ python -m agenttrace analyze --db evidence.db
 
 # 5. 生成 HTML 时间线回放审计报告
 python -m agenttrace report --db evidence.db --out report.html
+#    加 --redact：报告密钥/PII 打码（证据库本体不变），适合分发给外部接收方
+python -m agenttrace report --db evidence.db --out report_redacted.html --redact
 
 # 6. （可选）导出证据包：链+锚定+公钥+报告 打成可独立验证的 zip
 python -m agenttrace bundle export --db evidence.db
+#    加 --redact 让包内报告脱敏
+python -m agenttrace bundle export --db evidence.db --redact
 # 接收方解包后:
 #   python -m agenttrace bundle verify-manifest <解包目录>
 #   python -m agenttrace seal verify --db <解包目录>/evidence.db --public-key <公钥>
@@ -238,7 +242,7 @@ python -m agenttrace report --db demo.db --out report.html
 - [x] 证据包导出（bundle：链+锚定+公钥+报告+manifest 一体归档）
 - [ ] RFC3161 时间戳锚定（对接权威 TSA）
 - [ ] Agent 框架适配器（OpenAI Responses API / LangGraph 钩子）
-- [ ] 报告脱敏模式（--redact：密钥/PII 命中上下文打码）
+- [x] 报告脱敏（--redact：密钥/PII 渲染层打码，证据库本体不变）
 - [ ] 多会话聚合审计（跨 Agent 行为画像）
 
 ---

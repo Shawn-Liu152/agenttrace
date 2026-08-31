@@ -74,6 +74,35 @@ PII_PATTERNS = [
     (r"\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b", "medium", "银行卡号"),
 ]
 
+# ---------------------------------------------------------------------------
+# 脱敏（v0.6 --redact）：报告渲染层打码，证据库本体不动（证据是链上事实）
+# ---------------------------------------------------------------------------
+
+# 打码目标 = secret 类 + PII 类模式的并集（复用已有正则，单一事实来源）
+_REDACT_RES = [
+    re.compile(p) for p, _sev, _t in (
+        SECRET_PATTERNS + PII_PATTERNS
+        + [(r"(?i)(password|passwd|secret|token|api[_-]?key)\s*[=:]\s*\S{6,}", "", "")]
+    )
+]
+
+
+def _mask_token(tok: str) -> str:
+    """保留首 4 尾 2 字符，中间 ***；短于 8 字符全遮。"""
+    if len(tok) < 8:
+        return "*" * len(tok)
+    return tok[:4] + "*" * 6 + tok[-2:]
+
+
+def redact_text(text: str) -> str:
+    """对文本中命中的密钥/PII 片段打码（不改变长度以外的排版，保持可读）。"""
+    if not isinstance(text, str) or not text:
+        return text
+    out = text
+    for rx in _REDACT_RES:
+        out = rx.sub(lambda m: _mask_token(m.group(0)), out)
+    return out
+
 EXFIL_NET_CMDS = [
     (r"(?i)\b(curl|wget|powershell|Invoke-WebRequest)\b.*\b(-T|--upload-file|upload|post)", "medium", "疑似文件上传命令"),
     (r"(?i)\bscp\s+\S+.*:", "medium", "SCP 远程拷贝"),

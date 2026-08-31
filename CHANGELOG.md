@@ -3,6 +3,29 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.9.0] - 2026-08-31
+
+### RFC3161 时间戳锚定（路线图收官项：tsa）
+
+- **新增 `agenttrace/tsa.py`**——对接权威 TSA 打"存在性证明"时间戳，
+  零第三方依赖（手写最小 DER/ASN.1 编解码）：
+  - `build_tsq()` 构造 RFC3161 TimeStampReq（version/messageImprint/nonce）
+  - `parse_tsr()` 解析 TimeStampResp：status、genTime、messageImprint
+    回显哈希（深度优先 DER 扫描，兼容 CMS ContentInfo 嵌套结构）
+  - `request_timestamp()` 用 urllib POST（application/timestamp-query）
+  - `stamp()` 把 TSQ/TSR/解析摘要写入 `<db>.anchor.tsq/.tsr/.tsa.json`
+  - `verify()` 校验 messageImprint 双向绑定——TSA 签署的确实是
+    **这份锚定内容**；篡改锚定或替换 TSR 都会检出（exit 2）
+- **CLI**：`tsa stamp --db ev.db [--tsa-url https://freetsa.org/tsr]` /
+  `tsa verify --db ev.db`
+- **诚实边界（README 已声明）**：不验证 TSR 内 CMS 签名的合法性
+  （需 X.509/CA 链校验，超出零依赖范围）——生产/执法场景用
+  `openssl ts -verify -data <tsq> -in <tsr> -CAfile <tsa_cert.pem>` 验签；
+  网络不可达时明确报错不伪造成功
+- 新增 `tests/test_tsa.py`（9 用例：DER 往返 / TSQ 结构 / mock TSA
+  stamp-verify / 篡改锚定检出 / 替换 TSR 检出 / 拒绝状态 / 文件缺失 /
+  genTime）；全量 **102 测试**
+
 ## [0.8.0] - 2026-08-31
 
 ### Agent 框架适配器（路线图项：真实运行时取证钩子）

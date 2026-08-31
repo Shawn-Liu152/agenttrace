@@ -238,6 +238,34 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tsa(args: argparse.Namespace) -> int:
+    """RFC3161 时间戳锚定（v0.9）。"""
+    from .tsa import stamp, verify
+    if args.action == "stamp":
+        try:
+            res = stamp(args.db, args.tsa_url, timeout=args.timeout)
+        except (FileNotFoundError, RuntimeError, ValueError) as e:
+            print(f"✘ 时间戳失败: {e}", file=sys.stderr)
+            return 1
+        print(f"✔ 时间戳已授予: {res.get('status_name', '?')} "
+              f"@ {res.get('gen_time', '?')}")
+        print(f"   绑定锚定哈希: {res.get('anchor_sha256', '?')[:16]}…")
+        print(f"   TSR: {args.db}.anchor.tsr  (外部验签: "
+              f"openssl ts -verify -data {args.db}.anchor.tsq -in {args.db}.anchor.tsr -CAfile <tsa_cert.pem>)")
+        return 0
+    if args.action == "verify":
+        ok, problems = verify(args.db)
+        if ok:
+            print(f"✔ 时间戳绑定有效: 当前锚定哈希与 TSA 回显一致")
+            return 0
+        print(f"✘ 时间戳验证失败: {len(problems)} 处问题")
+        for p in problems:
+            print(f"   - {p}")
+        return 2
+    print(f"✘ 未知 tsa 子命令: {args.action}", file=sys.stderr)
+    return 1
+
+
 def cmd_seal(args: argparse.Namespace) -> int:
     """Ed25519 锚定（v0.4）：私钥只在签名端，公钥可分发给任何验证者。"""
     from .anchor_v2 import (
@@ -375,6 +403,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_agg.add_argument("--out", default=None, help="输出 HTML 聚合报告路径（可选）")
     p_agg.add_argument("--title", default="AgentTrace 聚合审计", help="报告标题")
 
+    p_tsa = sub.add_parser("tsa", help="RFC3161 时间戳锚定（v0.9）：stamp/verify")
+    p_tsa.add_argument("action", choices=["stamp", "verify"],
+                       help="stamp=向 TSA 打时间戳, verify=校验哈希绑定")
+    p_tsa.add_argument("--db", default=_default_db(), help="证据库路径")
+    p_tsa.add_argument("--tsa-url", default="https://freetsa.org/tsr",
+                       help="TSA 服务 URL（默认公共 freetsa.org）")
+    p_tsa.add_argument("--timeout", type=float, default=15.0, help="HTTP 超时秒数")
+
     p_seal = sub.add_parser("seal", help="Ed25519 外部锚定（v0.4）：keygen/seal/verify")
     p_seal.add_argument("action", choices=["keygen", "seal", "verify"],
                         help="keygen=生成密钥对, seal=签名当前链状态, verify=公钥验证")
@@ -407,6 +443,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "analyze": cmd_analyze,
         "report": cmd_report,
         "aggregate": cmd_aggregate,
+        "tsa": cmd_tsa,
         "seal": cmd_seal,
         "bundle": cmd_bundle,
     }[args.cmd](args)

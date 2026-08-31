@@ -53,6 +53,10 @@ python -m agenttrace bundle export --db evidence.db --redact
 
 # 7. 跨库聚合审计：多会话画像 + 风险类别排行 + 高危事件 Top
 python -m agenttrace aggregate --dbs a.db,b.db,c.db --out agg.html
+
+# 8. RFC3161 时间戳锚定：把锚定哈希交给权威 TSA 打"存在性证明"时间戳
+python -m agenttrace tsa stamp --db evidence.db            # 默认 freetsa.org，可 --tsa-url
+python -m agenttrace tsa verify --db evidence.db           # 校验哈希绑定（篡改检出）
 ```
 
 ### 接入真实 Agent 框架（v0.8 — 零依赖适配器）
@@ -263,7 +267,7 @@ python -m agenttrace report --db demo.db --out report.html
 - [x] HTML 时间线回放报告（搜索/过滤/哈希/锚定状态展示）
 - [x] Ed25519 非对称锚定（RFC 8032 纯 Python 实现：验证端无私钥验证 + 公钥绑定防伪造）
 - [x] 证据包导出（bundle：链+锚定+公钥+报告+manifest 一体归档）
-- [ ] RFC3161 时间戳锚定（对接权威 TSA）
+- [x] RFC3161 时间戳锚定（tsa：TSQ/TSR 零依赖实现，messageImprint 绑定校验；CMS 验签经 openssl）
 - [x] Agent 框架适配器（adapters：OpenAI Responses 流式 / Chat Completions / LangGraph，零依赖）
 - [x] 报告脱敏（--redact：密钥/PII 渲染层打码，证据库本体不变）
 - [x] 多会话聚合审计（aggregate：跨库画像 + 风险类别排行 + 高危 Top）

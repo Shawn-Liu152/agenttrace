@@ -3,6 +3,21 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.7.0] - 2026-08-31
+
+### 多会话聚合审计（路线图项：aggregate）
+
+- **新命令 `aggregate`**：`--dbs a.db,b.db [--out agg.html]` —— 跨证据库
+  审计画像，取证场景天然单元是"一个库 = 一次会话/一个事故"
+- 每库画像：事件数 / 类型分布 / agent / model / 时间跨度 / 风险发现
+  （严重度分布 + 类别分布）/ 链验证状态 / 锚定状态；不存在的库或空库
+  独立标记 error 不中断整体
+- 全局画像：总事件 / 总风险 / 风险类别排行 / Agent 数 / 高危事件 Top
+- 输出：终端文本摘要 + 可选 HTML 聚合报告（复用暗色视觉语言）
+- 新增 `agenttrace/aggregate.py` + `tests/test_aggregate.py`（6 用例：
+  单库画像 / 聚合统计与排行 / error 库 / HTML / 文本 / CLI 端到端）；
+  全量 87 测试
+
 ## [0.6.0] - 2026-08-30
 
 ### 报告脱敏（路线图项：--redact）

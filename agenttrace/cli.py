@@ -222,6 +222,22 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_aggregate(args: argparse.Namespace) -> int:
+    """跨库聚合审计（v0.7）：多会话画像 + 风险排行。"""
+    from .aggregate import aggregate_dbs, render_agg_html, render_agg_text
+    dbs = [p.strip() for p in args.dbs.split(",") if p.strip()]
+    if not dbs:
+        print("✘ 未指定证据库（--dbs a.db,b.db）", file=sys.stderr)
+        return 1
+    agg = aggregate_dbs(dbs, title=args.title)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as f:
+            f.write(render_agg_html(agg))
+        print(f"✔ 聚合报告已生成: {args.out}")
+    print(render_agg_text(agg))
+    return 0
+
+
 def cmd_seal(args: argparse.Namespace) -> int:
     """Ed25519 锚定（v0.4）：私钥只在签名端，公钥可分发给任何验证者。"""
     from .anchor_v2 import (
@@ -353,6 +369,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_rep.add_argument("--redact", action="store_true",
                        help="脱敏：报告中的密钥/PII 打码（证据库本体不变）")
 
+    p_agg = sub.add_parser("aggregate", help="跨库聚合审计（v0.7）：多会话画像")
+    p_agg.add_argument("--dbs", required=True,
+                       help="逗号分隔的证据库列表（如 a.db,b.db,c.db）")
+    p_agg.add_argument("--out", default=None, help="输出 HTML 聚合报告路径（可选）")
+    p_agg.add_argument("--title", default="AgentTrace 聚合审计", help="报告标题")
+
     p_seal = sub.add_parser("seal", help="Ed25519 外部锚定（v0.4）：keygen/seal/verify")
     p_seal.add_argument("action", choices=["keygen", "seal", "verify"],
                         help="keygen=生成密钥对, seal=签名当前链状态, verify=公钥验证")
@@ -384,6 +406,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "verify": cmd_verify,
         "analyze": cmd_analyze,
         "report": cmd_report,
+        "aggregate": cmd_aggregate,
         "seal": cmd_seal,
         "bundle": cmd_bundle,
     }[args.cmd](args)

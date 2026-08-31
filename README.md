@@ -50,6 +50,9 @@ python -m agenttrace bundle export --db evidence.db --redact
 # 接收方解包后:
 #   python -m agenttrace bundle verify-manifest <解包目录>
 #   python -m agenttrace seal verify --db <解包目录>/evidence.db --public-key <公钥>
+
+# 7. 跨库聚合审计：多会话画像 + 风险类别排行 + 高危事件 Top
+python -m agenttrace aggregate --dbs a.db,b.db,c.db --out agg.html
 ```
 
 实时流模式（Agent 运行时边跑边取证）：
@@ -243,7 +246,7 @@ python -m agenttrace report --db demo.db --out report.html
 - [ ] RFC3161 时间戳锚定（对接权威 TSA）
 - [ ] Agent 框架适配器（OpenAI Responses API / LangGraph 钩子）
 - [x] 报告脱敏（--redact：密钥/PII 渲染层打码，证据库本体不变）
-- [ ] 多会话聚合审计（跨 Agent 行为画像）
+- [x] 多会话聚合审计（aggregate：跨库画像 + 风险类别排行 + 高危 Top）
 
 ---
 

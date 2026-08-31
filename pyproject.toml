@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agenttrace"
-version = "0.7.0"
+version = "0.8.0"
 description = "AI Agent 取证审计工具 — 防篡改证据链（外部锚定）+ 风险分析 + 时间线回放报告"
 readme = "README.md"
 requires-python = ">=3.9"

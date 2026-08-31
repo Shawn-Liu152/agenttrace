@@ -55,6 +55,26 @@ python -m agenttrace bundle export --db evidence.db --redact
 python -m agenttrace aggregate --dbs a.db,b.db,c.db --out agg.html
 ```
 
+### 接入真实 Agent 框架（v0.8 — 零依赖适配器）
+
+把 OpenAI / LangGraph 的运行时数据直接转成证据链（纯 dict 转换，不 import SDK）：
+
+```python
+from agenttrace.adapters import ingest_openai_response_events, ingest_langgraph_state
+from agenttrace.store import EvidenceStore
+
+store = EvidenceStore("ev.db", anchor_key=...)
+
+# OpenAI Responses API 流式（SDK 事件 .model_dump() 后传入）
+stream = client.responses.create(model="gpt-5", input=[...], stream=True)
+ingest_openai_response_events(store, (e.model_dump() for e in stream))
+
+# LangGraph 检查点 messages
+ingest_langgraph_state(store, [m.model_dump() for m in state["messages"]])
+```
+
+详见 `examples/adapter_demo.py`（两种格式 + 链验证 + 风险检出 + 报告全流程）。
+
 实时流模式（Agent 运行时边跑边取证）：
 
 ```bash
@@ -244,7 +264,7 @@ python -m agenttrace report --db demo.db --out report.html
 - [x] Ed25519 非对称锚定（RFC 8032 纯 Python 实现：验证端无私钥验证 + 公钥绑定防伪造）
 - [x] 证据包导出（bundle：链+锚定+公钥+报告+manifest 一体归档）
 - [ ] RFC3161 时间戳锚定（对接权威 TSA）
-- [ ] Agent 框架适配器（OpenAI Responses API / LangGraph 钩子）
+- [x] Agent 框架适配器（adapters：OpenAI Responses 流式 / Chat Completions / LangGraph，零依赖）
 - [x] 报告脱敏（--redact：密钥/PII 渲染层打码，证据库本体不变）
 - [x] 多会话聚合审计（aggregate：跨库画像 + 风险类别排行 + 高危 Top）
 

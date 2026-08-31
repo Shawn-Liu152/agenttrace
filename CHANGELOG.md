@@ -3,6 +3,27 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.8.0] - 2026-08-31
+
+### Agent 框架适配器（路线图项：真实运行时取证钩子）
+
+- **新增 `agenttrace/adapters.py`**——把主流 Agent 框架的运行时数据转成
+  AgentTrace 事件，**保持零第三方依赖**（不 import openai/langgraph，
+  纯 dict 转换，SDK 集成由用户 3 行接入）：
+  - `ingest_messages()`：统一 OpenAI Chat Completions 消息数组
+    （role: user/assistant/tool + tool_calls）与 LangGraph 消息
+    （type: human/ai/tool/system + tool_calls/args）
+  - `ingest_openai_response_events()`：Responses API **流式事件**摄入——
+    文本 delta 合并为一条 agent_message、function_call_arguments.delta
+    合并为一条 tool_call、function_call_output → tool_result，未知事件
+    静默跳过不打断采集
+  - `ingest_langgraph_state()`：LangGraph 检查点 messages 直接摄入
+- 工具调用 ID（tool_call_id）写入事件 content（store 表无顶层列，
+  保证入库）；自动补 session_start（meta 记 agent/model），重复摄入不
+  重复建会话
+- 新增 `tests/test_adapters.py`（6 用例）+ `examples/adapter_demo.py`
+  （两种格式 + 链验证 + 风险检出 + 报告全流程示例）；全量 93 测试
+
 ## [0.7.0] - 2026-08-31
 
 ### 多会话聚合审计（路线图项：aggregate）

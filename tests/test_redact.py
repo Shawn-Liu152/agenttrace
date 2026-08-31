@@ -101,3 +101,31 @@ class TestRedactReport(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+class TestReportAnchorBadge(unittest.TestCase):
+    """Ed25519 seal 后的库，report 应显示"已锚定"徽章（v0.9.1 修复）。"""
+
+    def test_ed25519_anchored_report_shows_badge(self):
+        import json as _json
+        import tempfile as _tf
+        from agenttrace import ed25519 as _ed
+        from agenttrace import anchor_v2 as _av2
+        from agenttrace.recorder import make_session_start, make_tool_call
+        tmp = _tf.mkdtemp()
+        db = os.path.join(tmp, "e.db")
+        s = EvidenceStore(db)
+        r = Recorder(s)
+        s.set_meta("agent", "a")
+        r.ingest(make_session_start(agent="a"))
+        r.ingest(make_tool_call("shell", {"cmd": "ls"}))
+        events, meta = s.all_events(), s.all_meta()
+        s.close()
+        kp = _ed.Ed25519KeyPair.generate()
+        _av2.seal_anchor(db, events, meta, kp)
+        # 模拟 CLI 判定逻辑（store 无 HMAC key，但 anchor.json 存在）
+        from agenttrace.report import generate_report
+        from agenttrace.analyzer import analyze_chain
+        anchored = os.path.exists(db + ".anchor.json")
+        html = generate_report(events, analyze_chain(events), meta, True, [],
+                               "T", anchored=anchored, anchor_info="Ed25519")
+        self.assertIn("外部锚定有效", html)

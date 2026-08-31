@@ -214,6 +214,10 @@ def cmd_report(args: argparse.Namespace) -> int:
     if anchored:
         aok, aproblems = store.anchor.verify(events, store.all_meta())
         anchor_info = "锚定有效" if aok else ("锚定异常: " + "; ".join(aproblems[:2]))
+    elif os.path.exists(args.db + ".anchor.json"):
+        # Ed25519 锚定（seal 后无 HMAC key）——同样视为已锚定，徽章显示
+        anchored = True
+        anchor_info = "Ed25519 外部锚定（公钥验证见 seal verify）"
     out = render_report_file(events, findings, meta, args.out, title=args.title,
                              anchored=anchored, anchor_info=anchor_info,
                              redact=args.redact)

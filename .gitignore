@@ -22,6 +22,9 @@ report_*.png
 .pytest_cache/
 .coverage
 
+# showcase 独立交付目录（Desktop\AgentTrace_showcase，不入库；防 git add -A 误收）
+AgentTrace_showcase/
+
 # 编辑器
 .idea/
 .vscode/

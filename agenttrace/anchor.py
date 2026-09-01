@@ -123,6 +123,33 @@ def resolve_key_path(db_path: str) -> str:
     return new_path
 
 
+def load_key_for(db_path: str) -> Optional["AnchorKey"]:
+    """完整优先级的密钥加载（终评 4.1）：与 anchor_state()/ensure_key() 同源。
+
+    AGENTTRACE_ANCHOR_KEY_HEX → AGENTTRACE_ANCHOR_KEY_PATH → 配置目录 → 旧位置。
+    返回 None 表示未找到（不生成新密钥——验证类命令绝不能创建密钥）。
+    """
+    hex_env = os.environ.get("AGENTTRACE_ANCHOR_KEY_HEX")
+    if hex_env:
+        try:
+            return AnchorKey.from_hex(hex_env)
+        except ValueError:
+            return None
+    path_env = os.environ.get("AGENTTRACE_ANCHOR_KEY_PATH")
+    if path_env and os.path.exists(path_env):
+        try:
+            return AnchorKey.load(path_env)
+        except (OSError, ValueError):
+            return None
+    for p in (key_path_for(db_path), legacy_key_path_for(db_path)):
+        if os.path.exists(p):
+            try:
+                return AnchorKey.load(p)
+            except (OSError, ValueError):
+                return None
+    return None
+
+
 class AnchorKey:
     """签名密钥（32 字节 HMAC 密钥）。"""
 

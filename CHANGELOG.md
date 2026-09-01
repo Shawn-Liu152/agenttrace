@@ -3,6 +3,28 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.0.3] - 2026-09-01
+
+### 终评 4.1 / 4.2 修复（9.4 → 预期 9.5）
+
+**4.1 — verify 不认环境变量密钥路径**
+- 新增 `anchor.load_key_for(db_path)`：与 `anchor_state()`/`ensure_key()`
+  同一优先级（AGENTTRACE_ANCHOR_KEY_HEX → AGENTTRACE_ANCHOR_KEY_PATH →
+  配置目录 → 旧位置），**验证类命令绝不生成密钥**
+- `cmd_verify` / `cmd_record` / `cmd_report` 统一改用该函数——
+  用文档推荐的密钥分离姿势（ENV 指定独立目录）的用户现在能拿到
+  「🔐 外部锚定有效（密钥: 显式路径）」而不是误报「⚠ 未锚定」
+- 实测：ENV 路径 init→record→verify 全链路 exit 0
+
+**4.2 — 测试封闭性**
+- `test_c_hmac_key_deleted_still_strong_signal` 改用
+  `AGENTTRACE_ANCHOR_KEY_PATH` 指向临时目录（不再读删真实
+  `%APPDATA%\agenttrace\keys\`），删除 glob 死代码
+- CONTRIBUTING 新增**第二条纪律：测试必须封闭**（Test Isolation）——
+  4 条规则 + 自查项，与"降级必须显式声明"并列
+
+114 测试全绿（含封闭化后的 test_c）。
+
 ## [1.0.2] - 2026-08-31
 
 ### 发布一致性收尾

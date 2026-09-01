@@ -64,23 +64,26 @@ class TestVerifyDispatchEndToEnd(unittest.TestCase):
 
     def test_c_hmac_key_deleted_still_strong_signal(self):
         """路径 C：确认 HMAC 体系 + 密钥缺失 → 仍报强信号（不能为了不误报而漏报）。"""
+        # 终评 4.2：测试必须封闭——用 AGENTTRACE_ANCHOR_KEY_PATH 把密钥隔离到
+        # 临时目录，绝不读写真实用户配置目录。
+        key_dir = tempfile.mkdtemp()
+        key_file = os.path.join(key_dir, "test.key")
+        env = {**os.environ, "PYTHONPATH": ROOT,
+               "AGENTTRACE_ANCHOR_KEY_PATH": key_file}
         db = os.path.join(self.tmp, "e3.db")
+
+        def run_env(args):
+            return subprocess.run([sys.executable, "-m", "agenttrace"] + args,
+                                  capture_output=True, text=True, cwd=self.tmp,
+                                  env=env, timeout=180)
+
         for cli in (["init", "--db", db, "--agent", "h", "--anchor"],
                     ["record", self.sample, "--db", db]):
-            r = run_cli(cli, self.tmp)
+            r = run_env(cli)
             self.assertEqual(r.returncode, 0, (r.stdout + r.stderr)[-500:])
-        # 删除密钥文件（模拟销毁验证能力）
-        import glob
-        key_files = glob.glob(os.path.join(os.path.expanduser("~"),
-                                           "AppData", "Roaming", "agenttrace",
-                                           "keys", "*")) if sys.platform.startswith("win") else []
-        # 简化：直接用 anchor_state 查到的 key path
-        sys.path.insert(0, ROOT)
-        from agenttrace.anchor import resolve_key_path
-        kp = resolve_key_path(db)
-        if os.path.exists(kp):
-            os.remove(kp)
-        r = run_cli(["verify", "--db", db], self.tmp)
+        self.assertTrue(os.path.exists(key_file), "密钥应写入 AGENTTRACE_ANCHOR_KEY_PATH")
+        os.remove(key_file)  # 模拟销毁验证能力（只删临时目录的密钥，不碰用户环境）
+        r = run_env(["verify", "--db", db])
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn("疑似人为破坏", r.stdout)
 

@@ -24,6 +24,20 @@
 （现有榜样：`test_forged_tsr_verify_ok_but_cli_flags_cms`、
 `test_unbound_verify_cannot_detect_reseal`）。
 
+## 第二条纪律：测试必须封闭（Test Isolation）
+
+**测试绝不能读写真实用户环境。**（终评 4.2 案例：`test_c_hmac_key_deleted`
+曾直接删除 `%APPDATA%\agenttrace\keys\` 下的文件——在 sandbox 里被 safe-delete
+拦截暴露了不封闭，极端情况下会误删用户真实密钥。）
+
+规则：
+1. 数据库、密钥、报告一律用 `tempfile.mkdtemp()`
+2. 需要换密钥位置时用环境变量（`AGENTTRACE_ANCHOR_KEY_PATH` 等）指向临时目录
+3. 测试结束不留任何产物在用户目录（`%APPDATA%` / `~/.config` / 桌面）
+4. 不要在测试里 `import glob` 扫用户目录
+
+**自查**：测试跑完后检查 keys 目录/桌面/用户配置目录无新增文件。
+
 ## 开发环境
 
 ```bash

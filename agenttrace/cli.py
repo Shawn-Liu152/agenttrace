@@ -23,8 +23,8 @@ from typing import List, Optional
 
 from . import __version__
 from .anchor import (
-    Anchor, AnchorKey, anchor_path_for, anchor_state, ensure_key,
-    key_path_for, legacy_key_path_for, resolve_key_path,
+    Anchor, anchor_path_for, anchor_state, ensure_key,
+    key_path_for, legacy_key_path_for, load_key_for,
 )
 from .analyzer import analyze_chain, summarize
 from .recorder import Recorder, make_session_start, make_session_end
@@ -151,20 +151,15 @@ def _print_verify(store: EvidenceStore, db_path: str) -> int:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
-    anchor_key = None
-    key_path = resolve_key_path(args.db)
-    if os.path.exists(key_path):
-        anchor_key = AnchorKey.load(key_path)
+    # 终评 4.1：密钥解析与 anchor_state 同一优先级（ENV HEX/PATH → 配置目录 → 旧位置）
+    anchor_key = load_key_for(args.db)
     store = EvidenceStore(args.db, anchor_key=anchor_key)
     return _print_verify(store, args.db)
 
 
 def cmd_record(args: argparse.Namespace) -> int:
-    # record 时加载锚定密钥以继续更新锚定（新默认: 用户配置目录；兼容旧目录）
-    anchor_key = None
-    key_path = resolve_key_path(args.db)
-    if os.path.exists(key_path):
-        anchor_key = AnchorKey.load(key_path)
+    # record 时加载锚定密钥以继续更新锚定（同一优先级解析，终评 4.1）
+    anchor_key = load_key_for(args.db)
     store = EvidenceStore(args.db, anchor_key=anchor_key)
     rec = Recorder(store)
     before = store.count()
@@ -225,10 +220,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 
 
 def cmd_report(args: argparse.Namespace) -> int:
-    anchor_key = None
-    key_path = resolve_key_path(args.db)
-    if os.path.exists(key_path):
-        anchor_key = AnchorKey.load(key_path)
+    anchor_key = load_key_for(args.db)
     store = EvidenceStore(args.db, anchor_key=anchor_key)
     events = store.all_events()
     findings = analyze_chain(events)

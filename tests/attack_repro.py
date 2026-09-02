@@ -8,6 +8,13 @@ v0.2 起（外部锚定）：A/B/C 全部转为检出（5/5）。
 """
 import sys, os, json, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Windows CI cp1252 控制台：Unicode 符号（✅/❌/…）直接 print 会炸——
+# 强制 UTF-8（v1.1.1 跨平台修复）
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 from agenttrace.store import EvidenceStore
 from agenttrace.recorder import Recorder, make_session_start, make_user_message, make_tool_call, make_tool_result
 from agenttrace.chain import append_event

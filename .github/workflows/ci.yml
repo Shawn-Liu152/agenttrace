@@ -72,8 +72,11 @@ jobs:
                   return False
               if spec is None:
                   return False
-              if spec.origin is None or spec.origin.startswith('<'):
-                  return True  # 内建/冻结模块（sys、__future__ 等）
+              # 内建/冻结模块: frozen / built-in / <...>；不以路径开头都是
+              if spec.origin is None or not any(
+                      spec.origin.startswith(pfx)
+                      for pfx in ('/', '\\', 'C:', 'c:', '.', '..')):
+                  return True
               p = pathlib.Path(spec.origin).resolve()
               return p.is_relative_to(stdlib_root)
           for p in pathlib.Path('agenttrace').glob('*.py'):

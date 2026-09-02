@@ -8,7 +8,7 @@
 
 ## 一、现在做到哪了（一句话状态）
 
-**v1.1.1 已推送 GitHub（liushukai410/agenttrace，公开仓库），CI 三平台 × 3 Python 版本 9 job 全绿，GitHub Release v1.1.0 已发布。**
+**v1.1.1 已推送 GitHub（Shawn-Liu152/agenttrace，公开仓库），CI 三平台 × 3 Python 版本 9 job 全绿，GitHub Release v1.1.0 已发布。**
 
 | 维度 | 状态 |
 |---|---|
@@ -16,7 +16,7 @@
 | 测试 | **129 tests 全绿**（`python -m unittest discover -s tests`） |
 | 攻击门禁 | 5 类篡改攻击 7/7 检出（`python tests/attack_repro.py`） |
 | CI | ubuntu/windows/macos × py3.9/3.11/3.13 全通过（GitHub Actions） |
-| GitHub | `github.com/liushukai410/agenttrace`，18+ commits，release v1.1.0，README badges |
+| GitHub | `github.com/Shawn-Liu152/agenttrace`，18+ commits，release v1.1.0，README badges |
 | 评审历程 | 六轮外部评审 5.3 → 9.4（WorkBuddy 目录有报告） |
 | 代码规模 | ~17 模块 / ~6000 行 / 零第三方依赖 |
 
@@ -105,11 +105,11 @@ python -m agenttrace report --db demo.db --out report.html
 TOKEN=$(printf "protocol=https\nhost=github.com\n\n" | git credential fill 2>/dev/null | grep '^password=' | cut -d= -f2-)
 # 建仓库/查状态/发 release 全部 curl + Authorization: Bearer $TOKEN
 # 例子：查 CI 状态
-curl -s "https://api.github.com/repos/liushukai410/agenttrace/actions/runs?per_page=1" \
+curl -s "https://api.github.com/repos/Shawn-Liu152/agenttrace/actions/runs?per_page=1" \
   -H "Authorization: Bearer $TOKEN"
 # 拉 run 日志：/actions/runs/<id>/logs → zip（Windows 下用 python urllib 拉，curl 会 302 到 0 字节）
 ```
-GitHub 账号：**liushukai410**。仓库公开，release v1.1.0 已有。
+GitHub 账号：**Shawn-Liu152**（原 liushukai410 已改名，旧 URL 自动重定向）。仓库公开，release v1.1.0 已有。
 
 ## 六、下一步建议（按价值排序）
 

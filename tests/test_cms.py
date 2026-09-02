@@ -22,6 +22,9 @@ def setUpModule():
     if not os.path.exists(os.path.join(FIXDIR, "fixture_tsr.der")):
         from make_fixture import build_fixture
         build_fixture(FIXDIR)
+    if not os.path.exists(os.path.join(FIXDIR, "fixture_ec_tsr.der")):
+        from make_fixture import build_ec_fixture
+        build_ec_fixture(FIXDIR)
 
 
 def load():
@@ -95,6 +98,138 @@ class TestVerifyCms(unittest.TestCase):
         forged = make_fake_tsr(hashlib.sha256(b"x").digest())
         res = cms.verify_cms(forged, ca_certs=[ca])
         self.assertFalse(res["verified"])
+
+
+def _load_ec():
+    with open(os.path.join(FIXDIR, "fixture_ec_tsr.der"), "rb") as f:
+        tsr = f.read()
+    with open(os.path.join(FIXDIR, "fixture_ec_ca.der"), "rb") as f:
+        ca = f.read()
+    with open(os.path.join(FIXDIR, "fixture_ec_tsa.der"), "rb") as f:
+        tsa = f.read()
+    return tsr, ca, tsa
+
+
+class TestVerifyCmsEcdsa(unittest.TestCase):
+    """v1.2：ECDSA P-256 CMS 验签（零依赖 ecc.py 对真实 EC 签名链）。"""
+
+    def test_valid_ecdsa_cms_trusted(self):
+        tsr, ca, tsa = _load_ec()
+        res = cms.verify_cms(tsr, ca_certs=[ca])
+        self.assertTrue(res["verified"], res["problems"])
+        self.assertEqual(res["level"], "ca-trusted")
+        self.assertEqual(res["sig_alg"], "ecdsa-p256-sha256")
+        self.assertTrue(res["signature_math_ok"])
+        self.assertTrue(res["message_digest_ok"])
+
+    def test_ecdsa_no_ca_signature_math_ok(self):
+        """无 CA：ECDSA 数学验签仍过，但不给 verified/信任级别。"""
+        tsr, ca, tsa = _load_ec()
+        res = cms.verify_cms(tsr, ca_certs=None)
+        self.assertTrue(res["signature_math_ok"], res["problems"])
+        self.assertFalse(res["verified"])
+        # TSA 证书由 CA 签发（非自签），无受信 CA 时不产生信任级别
+        self.assertIsNone(res["level"])
+
+    def test_ecdsa_wrong_ca_rejected(self):
+        """用 EC TSA 证书冒充 CA → 信任链不成立。"""
+        tsr, ca, tsa = _load_ec()
+        res = cms.verify_cms(tsr, ca_certs=[tsa])
+        self.assertFalse(res["verified"])
+
+    def test_rsa_ca_cannot_validate_ec_tsr(self):
+        """RSA CA 与 ECDSA TSR 混搭 → 验不过（算法不匹配不放行）。"""
+        tsr_ec, _, _ = _load_ec()
+        with open(os.path.join(FIXDIR, "fixture_ca.der"), "rb") as f:
+            rsa_ca = f.read()
+        res = cms.verify_cms(tsr_ec, ca_certs=[rsa_ca])
+        self.assertFalse(res["verified"])
+
+    def test_ecdsa_tampered_signature_detected(self):
+        """翻转 ECDSA 签名一字节 → 验签失败。"""
+        tsr, ca, tsa = _load_ec()
+        sd = cms.extract_signed_data_der(tsr)
+        si = cms.parse_signer_info(cms.parse_signed_data(sd)["signer_info_raw"])
+        sig = si["encrypted_digest"]
+        i = tsr.index(sig) + 5  # 落在签名 DER 内部
+        bad = bytearray(tsr)
+        bad[i] ^= 0xFF
+        res = cms.verify_cms(bytes(bad), ca_certs=[ca])
+        self.assertFalse(res["verified"])
+
+    def test_ecdsa_tampered_content_detected(self):
+        """翻转 TSTInfo 一字节 → messageDigest 不符。"""
+        tsr, ca, tsa = _load_ec()
+        needle = hashlib.sha256(b"anchor-sha256-digest-fixture-ec").digest()
+        i = tsr.find(needle)
+        self.assertGreater(i, 0)
+        bad = bytearray(tsr)
+        bad[i] ^= 0xFF
+        res = cms.verify_cms(bytes(bad), ca_certs=[ca])
+        self.assertFalse(res["verified"])
+        self.assertTrue(any("messageDigest" in p or "签名" in p
+                            for p in res["problems"]), res["problems"])
+
+    def test_ec_cert_parse(self):
+        """EC 证书解析出 P-256 公钥点与签名算法 OID。"""
+        _, ca, tsa = _load_ec()
+        cert = cms.parse_cert(tsa)
+        self.assertEqual(cert["key_type"], "ec")
+        self.assertEqual(cert["ec_curve"], cms.OID_P256)
+        self.assertEqual(len(cert["ec_point"]), 65)
+        self.assertEqual(cert["ec_point"][0], 0x04)
+        self.assertEqual(cert["tbs_sig_oid"], cms.OID_ECDSA_SHA256)
+
+
+class TestEcdsaCrossCheck(unittest.TestCase):
+    """ecc.py 与 cryptography 的交叉一致性（多组随机密钥/消息）。"""
+
+    def setUp(self):
+        try:
+            import make_fixture
+            make_fixture._crypto()
+        except ImportError:
+            self.skipTest("cryptography 未装（测试专用依赖，CI 已装）")
+
+    def test_random_keypairs_match_cryptography(self):
+        import os as _os
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import hashes, serialization
+        from agenttrace import ecc
+        for k in range(8):
+            key = ec.generate_private_key(ec.SECP256R1())
+            der = key.public_key().public_bytes(
+                serialization.Encoding.DER,
+                serialization.PublicFormat.SubjectPublicKeyInfo)
+            # 从 SPKI 里取未压缩点（最后 65 字节）
+            point = der[-65:]
+            msg = _os.urandom(k * 17 + 3)
+            sig = key.sign(msg, ec.ECDSA(hashes.SHA256()))
+            self.assertTrue(ecc.ecdsa_verify_p256(point, msg, sig), k)
+            # 篡改消息即拒
+            self.assertFalse(ecc.ecdsa_verify_p256(point, msg + b"x", sig), k)
+            # 篡改签名即拒
+            bad = bytearray(sig)
+            bad[-1] ^= 1
+            self.assertFalse(ecc.ecdsa_verify_p256(point, msg, bytes(bad)), k)
+
+    def test_reject_non_p256_points(self):
+        from agenttrace import ecc
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import hashes, serialization
+        key = ec.generate_private_key(ec.SECP384R1())
+        der = key.public_key().public_bytes(
+            serialization.Encoding.DER,
+            serialization.PublicFormat.SubjectPublicKeyInfo)
+        point = der[-97:]  # P-384 未压缩点 97 字节
+        with self.assertRaises(ecc.UnsupportedEllipticCurve):
+            ecc.decode_uncompressed_point(point)
+
+    def test_malformed_signature_returns_false(self):
+        from agenttrace import ecc
+        point = b"\x04" + b"\x11" * 32 + b"\x22" * 32
+        self.assertFalse(ecc.ecdsa_verify_p256(point, b"m", b"\x30\x00"))
+        self.assertFalse(ecc.ecdsa_verify_p256(point, b"m", b"garbage"))
 
 
 class TestDERPrimitives(unittest.TestCase):

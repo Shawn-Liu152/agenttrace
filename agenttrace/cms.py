@@ -1,17 +1,20 @@
-"""RFC3161 TSR 的 CMS 签名验证（v1.1.0，零依赖纯 Python）。
+"""RFC3161 TSR 的 CMS 签名验证（v1.2.0，零依赖纯 Python）。
 
 收回终评 −0.2 那项：v1.0 的 `tsa verify` 明确声明"不验证 CMS 签名"。
 本模块用纯标准库实现完整验证链：
 
   TSR → PKCS#7 SignedData → {certs, signerInfos}
-    ① RSA PKCS#1 v1.5 验证 signerInfo 对 signedAttrs 的签名
+    ① 验证 signerInfo 对 signedAttrs 的签名（按算法分派）：
+       - RSA PKCS#1 v1.5（sha256WithRSAEncryption）
+       - ECDSA P-256（ecdsa-with-SHA256，v1.2 新增，见 ecc.py）
     ② signedAttrs.messageDigest == SHA-256(eContent = TSTInfo DER)
     ③ 签名者证书：自签（自证结构正确）或 CA 链（--cafile 受信锚点）
     ④ genTime 落在证书有效期内（时间戳有效性以签名时刻为准）
 
 已知边界（诚实声明，SECURITY.md 同步）：
-  - 算法：仅 sha256WithRSAEncryption（主流 TSA；其余算法报"不支持"而非放行）
-  - 不做 OCSP/CRL 吊销检查（网络依赖）
+  - 算法：sha256WithRSAEncryption 与 ecdsa-with-SHA256(P-256)；其余算法
+    （P-384/P-521、RSA-SHA1、Ed25519 证书等）报"不支持"而非放行
+  - 吊销检查由 revocation.py 负责（CRL 本地 / OCSP 在线，v1.2 新增）
   - 无 --cafile 时即使签名数学有效也只给"untrusted"级——防自签伪造冒充
 """
 
@@ -115,6 +118,56 @@ def rsa_verify_sha256(n: int, e: int, message: bytes, sig: bytes) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# 算法 OID（值编码，不含 tag/长度）
+# ---------------------------------------------------------------------------
+
+OID_RSA_ENCRYPTION = bytes.fromhex("2a864886f70d010101")     # 1.2.840.113549.1.1.1
+OID_SHA256_RSA = bytes.fromhex("2a864886f70d01010b")         # 1.2.840.113549.1.1.11
+OID_DIGEST_SHA256 = bytes.fromhex("608648016503040201")      # 2.16.840.1.101.3.4.2.1
+OID_EC_PUBLIC_KEY = bytes.fromhex("2a8648ce3d0201")          # 1.2.840.10045.2.1
+OID_P256 = bytes.fromhex("2a8648ce3d030107")                 # 1.2.840.10045.3.1.7
+OID_ECDSA_SHA256 = bytes.fromhex("2a8648ce3d040302")         # 1.2.840.10045.4.3.2
+
+
+def _algid_oid(algid_payload: bytes) -> Optional[bytes]:
+    """AlgorithmIdentifier 的 payload → 内部 OID 的值字节。"""
+    try:
+        f = children(algid_payload)
+        if f and f[0][0] == 0x06:
+            return f[0][1]
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
+def verify_with_cert_key(cert: Dict[str, Any], message: bytes, sig: bytes,
+                         sig_alg_oid: Optional[bytes] = None
+                         ) -> Tuple[bool, Optional[str]]:
+    """用证书公钥验证签名，按公钥类型/签名算法 OID 分派（v1.2 支持 ECDSA）。
+
+    返回 (是否通过, 不通过原因)。不支持的组合必须返回 False + 原因，
+    绝不静默放行（降级必须显式声明纪律）。签名算法 OID 缺失时 fail-closed：
+    不允许"识别不出算法就按公钥类型默认"——那是算法混淆攻击面。
+    """
+    if sig_alg_oid is None:
+        return False, "签名算法 OID 缺失或无法识别（拒绝按默认算法放行）"
+    if cert.get("key_type") == "rsa":
+        if sig_alg_oid is not None and sig_alg_oid not in (
+                OID_RSA_ENCRYPTION, OID_SHA256_RSA):
+            return False, f"RSA 证书不支持的签名算法 OID {sig_alg_oid.hex()}"
+        return rsa_verify_sha256(cert["rsa_n"], cert["rsa_e"], message, sig), None
+    if cert.get("key_type") == "ec":
+        if cert.get("ec_curve") != OID_P256:
+            return False, "仅支持 P-256（prime256v1）EC 证书"
+        if sig_alg_oid is not None and sig_alg_oid != OID_ECDSA_SHA256:
+            want = sig_alg_oid.hex() if sig_alg_oid else None
+            return False, f"EC 证书仅支持 ecdsa-with-SHA256，收到 {want}"
+        from .ecc import ecdsa_verify_p256
+        return ecdsa_verify_p256(cert["ec_point"], message, sig), None
+    return False, "证书公钥算法不支持（仅 RSA / EC P-256）"
+
+
+# ---------------------------------------------------------------------------
 # X.509 最小解析（TBS 原文保留 —— 证书链验签需要 TBS 原始字节）
 # ---------------------------------------------------------------------------
 
@@ -133,7 +186,7 @@ def _asn1_time(t: int, v: bytes) -> Optional[datetime.datetime]:
 
 
 def parse_cert(cert_der: bytes) -> Dict[str, Any]:
-    """X.509 证书 → {tbs_raw, cert_sig, not_before, not_after, rsa_n, rsa_e, serial}"""
+    """X.509 证书 → 公钥/有效期/序列号/TBS 原文等（v1.2：支持 EC P-256 公钥）。"""
     top = seq_items(cert_der)
     if len(top) < 3:
         raise ValueError("证书字段不足")
@@ -147,8 +200,8 @@ def parse_cert(cert_der: bytes) -> Dict[str, Any]:
     if fields[off][0] == 0xA0:
         off += 1
     _, serial, _ = fields[off]; off += 1
-    _, _, _ = fields[off]; off += 1          # tbs sigAlg
-    _, _, _ = fields[off]; off += 1          # issuer
+    _, tbs_sigalg_v, _ = fields[off]; off += 1   # tbs sigAlg
+    _, _, _ = fields[off]; off += 1              # issuer
     _, validity, _ = fields[off]; off += 1
     vf = children(validity)
     nb = _asn1_time(vf[0][0], vf[0][1]) if len(vf) > 0 else None
@@ -157,16 +210,30 @@ def parse_cert(cert_der: bytes) -> Dict[str, Any]:
     _, spki_v, _ = fields[off]               # SPKI
     spki = children(spki_v)
     rsa_n = rsa_e = None
+    key_type = None
+    ec_curve = ec_point = None
+    spki_alg_oid = _algid_oid(spki[0][1]) if spki else None
     try:
-        bit_payload = spki[1][1][1:]         # BIT STRING → RSAPublicKey DER
-        t, rsa_v, _, _ = parse_tlv(bit_payload, 0)
-        rf = children(rsa_v)
-        rsa_n = int.from_bytes(rf[0][1], "big")
-        rsa_e = int.from_bytes(rf[1][1], "big")
+        bit_payload = spki[1][1][1:]         # BIT STRING payload（跳 unused-bits）
+        if spki_alg_oid == OID_EC_PUBLIC_KEY:
+            # EC 公钥：BIT STRING 内直接是 SEC1 点；curve OID 在 algId 参数位
+            alg_fields = children(spki[0][1])
+            ec_curve = alg_fields[1][1] if len(alg_fields) > 1 else None
+            ec_point = bit_payload
+            key_type = "ec"
+        else:
+            # 默认按 RSA：BIT STRING → RSAPublicKey DER
+            t, rsa_v, _, _ = parse_tlv(bit_payload, 0)
+            rf = children(rsa_v)
+            rsa_n = int.from_bytes(rf[0][1], "big")
+            rsa_e = int.from_bytes(rf[1][1], "big")
+            key_type = "rsa"
     except (ValueError, IndexError):
         pass
     return {"tbs_raw": tbs_raw, "cert_sig": cert_sig, "not_before": nb,
             "not_after": na, "rsa_n": rsa_n, "rsa_e": rsa_e,
+            "key_type": key_type, "ec_curve": ec_curve, "ec_point": ec_point,
+            "tbs_sig_oid": _algid_oid(tbs_sigalg_v),
             "serial": serial, "der": cert_der}
 
 
@@ -212,19 +279,17 @@ def _match_signer_cert(si_der: bytes, certs: List[bytes]) -> Optional[Dict[str, 
 
 
 def cert_self_signed(cert: Dict[str, Any]) -> bool:
-    """证书自签验证：用自身公钥验证对 TBS 原文的签名。"""
-    if cert.get("rsa_n") is None:
-        return False
-    return rsa_verify_sha256(cert["rsa_n"], cert["rsa_e"],
-                             cert["tbs_raw"], cert["cert_sig"])
+    """证书自签验证：用自身公钥验证对 TBS 原文的签名（RSA / ECDSA 分派）。"""
+    ok, _ = verify_with_cert_key(cert, cert["tbs_raw"], cert["cert_sig"],
+                                 cert.get("tbs_sig_oid"))
+    return ok
 
 
 def cert_signed_by(cert: Dict[str, Any], issuer: Dict[str, Any]) -> bool:
-    """证书由 issuer 公钥签名（CA 链一级）。"""
-    if not issuer.get("rsa_n"):
-        return False
-    return rsa_verify_sha256(issuer["rsa_n"], issuer["rsa_e"],
-                             cert["tbs_raw"], cert["cert_sig"])
+    """证书由 issuer 公钥签名（CA 链一级，RSA / ECDSA 分派）。"""
+    ok, _ = verify_with_cert_key(issuer, cert["tbs_raw"], cert["cert_sig"],
+                                 cert.get("tbs_sig_oid"))
+    return ok
 
 
 # ---------------------------------------------------------------------------
@@ -307,23 +372,29 @@ def _eci_content(eci_val: bytes) -> Optional[bytes]:
 
 
 def parse_signer_info(si_der: bytes) -> Dict[str, Any]:
-    """SignerInfo → {signed_attrs_raw(SET形态), encrypted_digest, digest_alg}"""
+    """SignerInfo → signedAttrs(SET形态)/签名值/摘要算法 OID/签名算法 OID。
+
+    SignerInfo ::= SEQUENCE { version, sid, digestAlgorithm,
+      signedAttrs [1], signatureAlgorithm, signature BIT STRING }
+    """
     items = seq_items(si_der)
     out: Dict[str, Any] = {}
-    # version(0), sid(1), digestAlg(2), [1]signedAttrs, digestEncAlg, encDigest
     sa_raw = None
     idx_a1 = None
     for i, (t, v, raw) in enumerate(items):
         if t == 0xA1 and sa_raw is None:
             sa_raw = raw
             idx_a1 = i
+    # digestAlgorithm 固定第 3 个字段
+    if len(items) > 2:
+        out["digest_alg_oid"] = _algid_oid(items[2][1])
     if sa_raw is not None:
         # CMS 规定：验签时 [1] 替换为 SET OF（0x31），内容字节不变
         out["signed_attrs_set_der"] = b"\x31" + sa_raw[1:]
     if idx_a1 is not None and idx_a1 + 2 < len(items):
         _, ed_bits, _ = items[idx_a1 + 2]
         out["encrypted_digest"] = ed_bits[1:]  # BIT STRING unused-bits
-        out["digest_alg"] = items[idx_a1 + 1][1]
+        out["sig_alg_oid"] = _algid_oid(items[idx_a1 + 1][1])
     return out
 
 
@@ -382,29 +453,38 @@ def verify_cms(tsr_der: bytes,
         if not sa or not sig:
             res["problems"].append("signerInfo 缺 signedAttrs/encryptedDigest")
             return res
+        sig_alg_oid = si.get("sig_alg_oid")
+        # 摘要算法门禁：只支持 SHA-256（其余明确拒绝，不猜测放行）
+        digest_alg_oid = si.get("digest_alg_oid")
+        if digest_alg_oid is not None and digest_alg_oid != OID_DIGEST_SHA256:
+            res["problems"].append(
+                f"仅支持 SHA-256 摘要算法，收到 OID {digest_alg_oid.hex()}")
+            return res
         # ① 签名者证书：按 issuer+serial 匹配（CMS IssuerAndSerialNumber）
         signer = _match_signer_cert(si_raw, certs)
         if signer is None:
-            # 回退：逐个尝试所有证书（容错：验过即签名者）
-            signer = None
+            # 回退：逐个尝试所有证书（容错：验过即签名者；RSA/ECDSA 分派）
             for cder in certs:
                 c = parse_cert(cder)
-                if c.get("rsa_n") and rsa_verify_sha256(
-                        c["rsa_n"], c["rsa_e"], sa, sig):
+                ok, _ = verify_with_cert_key(c, sa, sig, sig_alg_oid)
+                if ok:
                     signer = c
+                    res["signature_math_ok"] = True
                     break
             if signer is None:
                 res["problems"].append("signerInfo 签名与任何证书都不匹配（TSR 被篡改或伪造）")
                 return res
-        elif signer.get("rsa_n") is None:
-            res["problems"].append("仅支持 RSA 证书（sha256WithRSA）")
-            return res
         # ② 验 signedAttrs 签名（回退路径已验证过则跳过）
-        if not res.get("signature_math_ok") and not rsa_verify_sha256(
-                signer["rsa_n"], signer["rsa_e"], sa, sig):
-            res["problems"].append("signerInfo 签名验证失败（TSR 被篡改或非本证书签发）")
-            return res
+        if not res.get("signature_math_ok"):
+            ok, prob = verify_with_cert_key(signer, sa, sig, sig_alg_oid)
+            if not ok:
+                res["problems"].append(
+                    prob or "signerInfo 签名验证失败（TSR 被篡改或非本证书签发）")
+                return res
         res["signature_math_ok"] = True
+        res["sig_alg"] = ("ecdsa-p256-sha256" if sig_alg_oid == OID_ECDSA_SHA256
+                          else "rsa-pkcs1v15-sha256")
+        res["signer_cert_der"] = signer.get("der")
         # ③ messageDigest attr == SHA-256(eContent)
         content = _eci_content(sd["eci"][0]) if sd.get("eci") else None
         md_attr = _attr_value(sa, OID_MESSAGE_DIGEST)

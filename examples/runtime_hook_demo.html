@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>运行时钩子采集示例</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #0f172a; color: #e2e8f0; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #94a3b8; font-size: 13px; margin-bottom: 20px; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .stat { background: #1e293b; border-radius: 10px; padding: 14px 16px; }
+  .stat .n { font-size: 26px; font-weight: 700; }
+  .stat .l { color: #94a3b8; font-size: 12px; }
+  .stat.hi .n { color: #ef4444; }
+  .stat.md .n { color: #f59e0b; }
+  .stat.ok .n { color: #10b981; }
+
+  .panel { background: #1e293b; border-radius: 12px; padding: 18px 20px; margin-bottom: 24px; }
+  .panel h2 { font-size: 15px; margin-bottom: 12px; color: #cbd5e1; }
+
+  .chain-badge { display: inline-block; padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+  .chain-badge.ok { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+  .chain-badge.bad { background: #450a0a; color: #f87171; border: 1px solid #991b1b; }
+  .chain-problems { margin-top: 8px; color: #fca5a5; font-size: 12px; padding-left: 18px; }
+
+  .filters { margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .fbtn { background: #334155; color: #e2e8f0; border: none; border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+  .fbtn.active { background: #6366f1; }
+  .search { width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; margin-bottom: 14px; font-size: 13px; }
+
+  .tl-item { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #1e293b; }
+  .tl-marker { width: 10px; min-width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; }
+  .tl-body { flex: 1; min-width: 0; }
+  .tl-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .tl-type { font-weight: 700; font-size: 13px; }
+  .tl-time { color: #64748b; font-size: 12px; }
+  .tl-actor { background: #334155; color: #cbd5e1; border-radius: 999px; padding: 1px 8px; font-size: 11px; }
+  .tl-seq { color: #475569; font-size: 11px; }
+  .sev-badge { border-radius: 999px; padding: 1px 8px; font-size: 11px; color: #fff; font-weight: 700; }
+  .tl-content { margin-top: 6px; font-size: 13px; color: #cbd5e1; white-space: pre-wrap; word-break: break-all; }
+  .tl-content .kv { display: flex; gap: 8px; margin: 2px 0; }
+  .tl-content .k { color: #94a3b8; min-width: 90px; }
+  .tl-chain summary { color: #64748b; font-size: 11px; cursor: pointer; margin-top: 6px; }
+  .hash-line { display: block; font-size: 11px; color: #475569; word-break: break-all; font-family: Consolas, monospace; }
+
+  .findings { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .findings th { text-align: left; color: #94a3b8; padding: 6px 8px; border-bottom: 1px solid #334155; }
+  .findings td { padding: 6px 8px; border-bottom: 1px solid #1e293b; vertical-align: top; }
+  .sev-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .f-detail code { color: #94a3b8; font-size: 11px; word-break: break-all; }
+
+  .empty { color: #64748b; font-size: 13px; padding: 12px 0; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>运行时钩子采集示例</h1>
+  <div class="sub">AgentTrace 证据链审计 · 生成于 2026-09-02 20:22:56</div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">9</div><div class="l">事件总数</div></div>
+    <div class="stat"><div class="n">2</div><div class="l">工具调用</div></div>
+    <div class="stat ok"><div class="n">0</div><div class="l">错误</div></div>
+    <div class="stat ok"><div class="n">0</div><div class="l">高风险</div></div>
+    <div class="stat ok"><div class="n">0</div><div class="l">中风险</div></div>
+    <div class="stat"><div class="n">2.0s</div><div class="l">会话时长</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>🔗 证据链完整性</h2>
+    <span class="chain-badge ok">✅ 证据链完整 · 9 条事件全部验证通过</span>
+    
+  </div>
+
+  <div class="panel">
+    <h2>📋 会话信息</h2>
+    <div class="kv"><span class="k">agent</span><span class="v">&quot;hermes&quot;</span></div><div class="kv"><span class="k">model</span><span class="v">&quot;gpt-fake&quot;</span></div>
+  </div>
+
+  <div class="panel">
+    <h2>⚠️ 风险发现（0）</h2>
+    <div class="empty">✅ 未检测到高风险行为</div>
+  </div>
+
+  <div class="panel">
+    <h2>🕐 事件时间线（9）</h2>
+    <input class="search" id="search" placeholder="搜索事件内容…">
+    <div class="filters" id="filters">
+      <button class="fbtn active" data-type="__all__">全部</button>
+      <button class="fbtn" data-type="agent_message">Agent</button><button class="fbtn" data-type="session_end">会话结束</button><button class="fbtn" data-type="session_start">会话开始</button><button class="fbtn" data-type="tool_call">工具调用</button><button class="fbtn" data-type="tool_result">工具结果</button><button class="fbtn" data-type="user_message">用户</button>
+    </div>
+    <div id="timeline">
+            <div class="tl-item" data-type="session_start">
+              <div class="tl-marker" style="background:#6366f1"></div>
+              <div class="tl-body">
+                <div class="tl-head">
+                  <span class="tl-type" style="color:#6366f1">会话开始</span>
+                  <span class="tl-time">2026-09-02 20:22:56</span>
+                  <span class="tl-actor">system</span>
+                  
+                  <span class="tl-seq">#0</span>
+                </div>
+                <div class="tl-content"><div class="kv"><span class="k">agent</span><span class="v">hermes</span></div><div class="kv"><span class="k">model</span><span class="v">gpt-fake</span></div><div class="kv"><span class="k">tools</span><span class="v">[&quot;shell&quot;]</span></div></div>
+                <details class="tl-chain">
+                  <summary>证据哈希</summary>
+                  <code class="hash-line">prev: (none)</code>
+                  <code class="hash-line">hash: 2db845c2c890166dd21595e70e28b352068c10b8b3b155d40c3b01647fb7f816</code>
+                </details>
+              </div>
+            </div>
+            
+
+            <div class="tl-item" data-type="user_message">
+              <div class="tl-marker" style="background:#0ea5e9"></div>
+              <div class="tl-body">
+                <div class="tl-head">
+                  <span class="tl-type" style="color:#0ea5e9">用户</span>
+                  <span class="tl-time">2026-09-02 20:22:55</span>
+                  <span class="tl-actor">user</span>
+                  
+                  <span class="tl-seq">#1</span>
+                </div>
+                <div class="tl-content">帮我看看服务器根目录</div>
+                <details class="tl-chain">
+                  <summary>证据哈希</summary>
+                  <code class="hash-line">prev: 2db845c2c890166dd21595e70e28b352068c10b8b3b155d40c3b01647fb7f816</code>
+                  <code class="hash-line">hash: 65705928b0439f5b0ee632137e67475f2fa09ef061a468a67227f541ef7babce</code>
+                </details>
+              </div>
+            </div>
+            
+
+            <div class="tl-item" data-type="tool_call">
+              <div class="tl-marker" style="background:#f59e0b"></div>
+              <div class="tl-body">
+                <div class="tl-head">
+                  <span class="tl-type" style="color:#f59e0b">工具调用</span>
+                  <span class="tl-time">2026-09-02 20:22:56</span>
+                  <span class="tl-actor">agent</span>
+                  
+                  <span class="tl-seq">#2</span>
+                </div>
+                <div class="tl-content"><div class="kv"><span class="k">arguments</span><span class="v">{&quot;cmd&quot;: &quot;ls -la&quot;}</span></div><div class="kv"><span class="k">name</span><span class="v">shell</span></div><div class="kv"><span class="k">tool_call_id</span><span class="v">call_1</span></div></div>
+                <details class="tl-chain">
+                  <summary>证据哈希</summary>
+                  <code class="hash-line">prev: 65705928b0439f5b0ee632137e67475f2fa09ef061a468a67227f541ef7babce</code>
+                  <code class="hash-line">hash: 02e8481cc338fa161061919e94038607051e22710ee660441c379608e38a85cb</code>
+                </details>
+              </div>
+            </div>
+            
+
+            <div class="tl-item" data-type="tool_call">
+              <div class="tl-marker" style="background:#f59e0b"></div>
+              <div class="tl-body">
+                <div class="tl-head">
+                  <span class="tl-type" style="color:#f59e0b">工具调用</span>
+                  <span class="tl-time">2026-09-02 20:22:56</span>
+                  <span class="tl-actor">agent</span>
+                  
+                  <span class="tl-seq">#3</span>
+                </div>
+                <div class="tl-content"><div class="kv"><span class="k">arguments</span><span class="v">{&quot;cmd&quot;: &quot;ls -la&quot;}</span></div><div class="kv"><span class="k">name</span><span class="v">shell</span></div></div>
+                <details class="tl-chain">
+                  <summary>证据哈希</summary>
+                  <code class="hash-line">prev: 02e8481cc338fa161061919e94038607051e22710ee660441c379608e38a85cb</code>
+                  <code class="hash-line">hash: d27b3ee9d192d96d3412a380c248980457911372a0efd0e231e466117ed79af2</code>
+                </details>
+              </div>
+            </div>
+            
+
+            <div class="tl-item" data-type="tool_result">
+              <div class="tl-marker" style="background:#84cc16"></div>
+              <div class="tl-body">
+                <div class="tl-head">
+                  <span class="tl-type" style="color:#84cc16">工具结果</span>
+                  <span class="tl-time">2026-09-02 20:22:56</span>
+                  <span class="tl-actor">tool</span>
+                  
+                  <span class="tl-seq">#4</span>
+                </div>
+                <div class="tl-content"><div class="kv"><span class="k">name</span><span class="v">shell</span></div><div class="kv"><span class="k">ok</span><span class="v">true</span></div><div class="kv"><span class="k">output</span><span class="v">$ ls -la
+app.py
+data/</span></div></div>
+                <details class="tl-chain">
+                  <summary>证据哈希</summary>
+                  <code class="hash-line">prev: d27b3ee9d192d96d3412a380c248980457911372a0efd0e231e466117ed79af2</code>
+                  <code class="hash-line">hash: 870b187c84ed108bd9a238003a5a01d9355027b2d58e80be498dd110863e957c</code>
+                </details>
+              </div>
+            </div>
+            
+
+            <div class="tl-item" data-type="tool_result">
+              <div class="tl-marker" style="background:#84cc16"></div>
+              <div class="tl-body">
+                <div class="tl-head">
+                  <span class="tl-type" style="color:#84cc16">工具结果</span>
+                  <span class="tl-time">2026-09-02 20:22:54</span>
+                  <span class="tl-actor">tool</span>
+                  
+                  <span class="tl-seq">#5</span>
+                </div>
+                <div class="tl-content"><div class="kv"><span class="k">name</span><span class="v">shell</span></div><div class="kv"><span class="k">ok</span><span class="v">true</span></div><div class="kv"><span class="k">output</span><span class="v">$ ls -la
+app.py
+data/</span></div></div>
+                <details class="tl-chain">
+                  <summary>证据哈希</summary>
+                  <code class="hash-line">prev: 870b187c84ed108bd9a238003a5a01d9355027b2d58e80be498dd110863e957c</code>
+                  <code class="hash-line">hash: 36db29f990d778f1317a0051c0db2672a82ddfff8c2a4897d142774a1b859a2c</code>
+                </details>
+              </div>
+            </div>
+            
+
+            <div class="tl-item" data-type="user_message">
+              <div class="tl-marker" style="background:#0ea5e9"></div>
+              <div class="tl-body">
+                <div class="tl-head">
+                  <span class="tl-type" style="color:#0ea5e9">用户</span>
+                  <span class="tl-time">2026-09-02 20:22:55</span>
+                  <span class="tl-actor">user</span>
+                  
+                  <span class="tl-seq">#6</span>
+                </div>
+                <div class="tl-content">总结一下</div>
+                <details class="tl-chain">
+                  <summary>证据哈希</summary>
+                  <code class="hash-line">prev: 36db29f990d778f1317a0051c0db2672a82ddfff8c2a4897d142774a1b859a2c</code>
+                  <code class="hash-line">hash: 5b05d5cd4cc6fd92888b3daffea8ca4a206c2b3ec2af5ea1acc7b5d56000dcfd</code>
+                </details>
+              </div>
+            </div>
+            
+
+            <div class="tl-item" data-type="agent_message">
+              <div class="tl-marker" style="background:#10b981"></div>
+              <div class="tl-body">
+                <div class="tl-head">
+                  <span class="tl-type" style="color:#10b981">Agent</span>
+                  <span class="tl-time">2026-09-02 20:22:56</span>
+                  <span class="tl-actor">agent</span>
+                  
+                  <span class="tl-seq">#7</span>
+                </div>
+                <div class="tl-content">根目录有 app.py 和 data/</div>
+                <details class="tl-chain">
+                  <summary>证据哈希</summary>
+                  <code class="hash-line">prev: 5b05d5cd4cc6fd92888b3daffea8ca4a206c2b3ec2af5ea1acc7b5d56000dcfd</code>
+                  <code class="hash-line">hash: 246b1375e9be2f72866b02350611ce9ff19d37a6887087d4f68103fc8a07bf3d</code>
+                </details>
+              </div>
+            </div>
+            
+
+            <div class="tl-item" data-type="session_end">
+              <div class="tl-marker" style="background:#64748b"></div>
+              <div class="tl-body">
+                <div class="tl-head">
+                  <span class="tl-type" style="color:#64748b">会话结束</span>
+                  <span class="tl-time">2026-09-02 20:22:56</span>
+                  <span class="tl-actor">system</span>
+                  
+                  <span class="tl-seq">#8</span>
+                </div>
+                <div class="tl-content"><div class="kv"><span class="k">summary</span><span class="v">session closed by traced_session</span></div></div>
+                <details class="tl-chain">
+                  <summary>证据哈希</summary>
+                  <code class="hash-line">prev: 246b1375e9be2f72866b02350611ce9ff19d37a6887087d4f68103fc8a07bf3d</code>
+                  <code class="hash-line">hash: 71781a005af5a4936275744a11a6de5255b92f2f997b2ad95211643426caccb8</code>
+                </details>
+              </div>
+            </div>
+            </div>
+  </div>
+</div>
+
+<script>
+  const search = document.getElementById('search');
+  const items = [...document.querySelectorAll('.tl-item')];
+  let activeType = '__all__';
+
+  function apply() {
+    const q = search.value.toLowerCase();
+    items.forEach(it => {
+      const typeOk = activeType === '__all__' || it.dataset.type === activeType;
+      const textOk = !q || it.textContent.toLowerCase().includes(q);
+      it.classList.toggle('hidden', !(typeOk && textOk));
+    });
+  }
+
+  document.getElementById('filters').addEventListener('click', e => {
+    if (!e.target.classList.contains('fbtn')) return;
+    document.querySelectorAll('.fbtn').forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    activeType = e.target.dataset.type;
+    apply();
+  });
+
+  search.addEventListener('input', apply);
+</script>
+</body>
+</html>

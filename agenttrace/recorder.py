@@ -29,16 +29,18 @@ class Recorder:
 
     def __init__(self, store: EvidenceStore):
         self.store = store
-        # 以库内链尾为起点编号
-        self._next_seq = store.count()
 
     def ingest(self, raw: Dict[str, Any]) -> Dict[str, Any]:
-        """摄入一条事件（自动补 seq/event_id 并链式哈希）。"""
+        """摄入一条事件（自动补 seq/event_id 并链式哈希）。
+
+        seq 在写入瞬间以库内链尾为准（而非 Recorder 构造时缓存）：运行时
+        钩子场景下同一 store 会并存多个 Recorder（客户端包装、工具装饰器、
+        会话上下文），缓存序号会互相撞 seq，触发取证库的 UNIQUE 保护。
+        """
         ev = validate_event(raw)
-        ev["seq"] = self._next_seq
+        ev["seq"] = self.store.count()
         if not ev.get("event_id"):
             ev["event_id"] = new_event_id()
-        self._next_seq += 1
         return self.store.append(ev)
 
     def ingest_jsonl(self, lines: Iterable[str]) -> int:

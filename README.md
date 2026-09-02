@@ -1,8 +1,18 @@
 # AgentTrace — AI Agent 取证审计工具
 
+[![CI](https://github.com/liushukai410/agenttrace/actions/workflows/ci.yml/badge.svg)](https://github.com/liushukai410/agenttrace/actions)
+[![Python](https://img.shields.io/badge/Python-3.9%20%7C%203.11%20%7C%203.13-blue)](https://github.com/liushukai410/agenttrace)
+[![Tests](https://img.shields.io/badge/tests-126%20%E5%85%A8%E7%BB%BF-brightgreen)](https://github.com/liushukai410/agenttrace)
+[![Zero Deps](https://img.shields.io/badge/dependencies-0-orange)](https://github.com/liushukai410/agenttrace)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Release](https://img.shields.io/badge/release-v1.1.0-blueviolet)](https://github.com/liushukai410/agenttrace/releases)
+
 记录 AI Agent 的**每一步决策**（用户输入、模型回复、工具调用、工具结果、错误），构建 **SHA-256 哈希链证据链 + 外部锚定签名**——内容篡改、整链重写、末尾截断、元信息篡改均可检测。配套风险分析（危险命令 / 敏感路径 / 密钥外泄 / PII / 提示注入）与 **HTML 时间线回放报告**，用于 Agent 事故复盘、行为审计、合规取证。
 
 > 零第三方依赖：纯 Python 标准库。`pip install` 都不用装。
+
+> 📖 简历/面试场景请看 [`docs/interview-guide.md`](docs/interview-guide.md)
+> （电梯陈述 → 3 分钟深讲 → 追问攻防 → 现场演示脚本）。
 
 ---
 

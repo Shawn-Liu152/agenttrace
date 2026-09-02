@@ -251,6 +251,7 @@ class TestForgedTsrFlagged(unittest.TestCase):
             os.path.dirname(os.path.abspath(__file__)))}
         r = subprocess.run([sys.executable, "-m", "agenttrace", "tsa", "verify",
                             "--db", db], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace",
                            env=env, cwd=tmp, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("未验证 TSA 的 CMS 签名", r.stdout)

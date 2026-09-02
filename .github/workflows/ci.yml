@@ -61,6 +61,8 @@ jobs:
                           if top not in allowed:
                               bad.append((p.name, a.name))
                   elif isinstance(node, ast.ImportFrom) and node.module:
+                      if node.level > 0:
+                          continue  # 相对导入（from .x import y）→ 包内模块，跳过
                       top = node.module.split('.')[0]
                       if top not in allowed:
                           bad.append((p.name, node.module))

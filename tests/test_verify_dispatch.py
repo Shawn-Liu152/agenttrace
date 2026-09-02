@@ -24,7 +24,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def run_cli(args, cwd):
     env = {**os.environ, "PYTHONPATH": ROOT}
     return subprocess.run([sys.executable, "-m", "agenttrace"] + args,
-                          capture_output=True, text=True, cwd=cwd, env=env,
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace",
+                          cwd=cwd, env=env,
                           timeout=180)
 
 
@@ -74,7 +76,9 @@ class TestVerifyDispatchEndToEnd(unittest.TestCase):
 
         def run_env(args):
             return subprocess.run([sys.executable, "-m", "agenttrace"] + args,
-                                  capture_output=True, text=True, cwd=self.tmp,
+                                  capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace",
+                                  cwd=self.tmp,
                                   env=env, timeout=180)
 
         for cli in (["init", "--db", db, "--agent", "h", "--anchor"],

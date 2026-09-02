@@ -94,7 +94,8 @@ class TestAggregateCLI(unittest.TestCase):
         r = subprocess.run(
             [sys.executable, "-m", "agenttrace", "aggregate",
              "--dbs", f"{self.risky},{self.clean}", "--out", out],
-            capture_output=True, text=True, cwd=self.tmp, env=env, timeout=120)
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", cwd=self.tmp, env=env, timeout=120)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("聚合报告已生成", r.stdout)
         self.assertTrue(os.path.exists(out))

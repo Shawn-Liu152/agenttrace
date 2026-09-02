@@ -28,6 +28,16 @@ from .anchor import (
 )
 from .analyzer import analyze_chain, summarize
 from .recorder import Recorder, make_session_start, make_session_end
+
+# 跨平台控制台编码（v1.1.1）：Windows CI/旧控制台 cp1252 下，CLI 的
+# Unicode 符号（✔/✘/⚠/🔐）print 会直接 UnicodeEncodeError 崩溃。
+# 模块级强制 UTF-8 输出——覆盖 main()（CLI）与 _print_verify 等被
+# 测试直接调用的路径（本地 UTF-8 环境不复现，测试另有 cp1252 门禁）。
+for _std in (sys.stdout, sys.stderr):
+    try:
+        _std.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 from .report import render_report_file
 from .store import EvidenceStore
 
@@ -414,14 +424,6 @@ def cmd_bundle(args: argparse.Namespace) -> int:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    # Windows CI/旧控制台 cp1252 下 Unicode 符号（✔/✘/⚠）会炸编码——
-    # 强制 UTF-8 输出（v1.1.1 跨平台修复；失败也不影响原有逻辑）
-    import sys as _sys
-    for _s in (_sys.stdout, _sys.stderr):
-        try:
-            _s.reconfigure(encoding="utf-8", errors="replace")
-        except (AttributeError, ValueError):
-            pass
     parser = argparse.ArgumentParser(
         prog="agenttrace",
         description="AI Agent 取证审计工具 — 防篡改证据链 + 风险分析 + 时间线回放报告",

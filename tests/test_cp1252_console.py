@@ -20,8 +20,9 @@ def run_cli_cp1252(args, cwd):
     env = {**os.environ, "PYTHONPATH": ROOT,
            "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
     return subprocess.run([sys.executable, "-m", "agenttrace"] + args,
-                          capture_output=True, text=True, cwd=cwd, env=env,
-                          timeout=180)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", cwd=cwd,
+                          env=env, timeout=180)
 
 
 class TestCp1252Console(unittest.TestCase):

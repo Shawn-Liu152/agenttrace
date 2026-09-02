@@ -170,7 +170,9 @@ class TestCliCafileIntegration(unittest.TestCase):
         env = {**os.environ, "PYTHONPATH": self.root,
                "AGENTTRACE_ANCHOR_KEY_PATH": self.fx_dir + os.sep + "no.key"}
         return subprocess.run([sys.executable, "-m", "agenttrace"] + args,
-                              capture_output=True, text=True, cwd=self.tmp,
+                              capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
+                              cwd=self.tmp,
                               env=env, timeout=180)
 
     def test_cafile_verify_passes_with_trusted_chain(self):

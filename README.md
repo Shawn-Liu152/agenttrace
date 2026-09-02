@@ -2,14 +2,19 @@
 
 [![CI](https://github.com/liushukai410/agenttrace/actions/workflows/ci.yml/badge.svg)](https://github.com/liushukai410/agenttrace/actions)
 [![Python](https://img.shields.io/badge/Python-3.9%20%7C%203.11%20%7C%203.13-blue)](https://github.com/liushukai410/agenttrace)
-[![Tests](https://img.shields.io/badge/tests-126%20%E5%85%A8%E7%BB%BF-brightgreen)](https://github.com/liushukai410/agenttrace)
+[![Tests](https://img.shields.io/badge/tests-170%20%E5%85%A8%E7%BB%BF-brightgreen)](https://github.com/liushukai410/agenttrace)
 [![Zero Deps](https://img.shields.io/badge/dependencies-0-orange)](https://github.com/liushukai410/agenttrace)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v1.1.0-blueviolet)](https://github.com/liushukai410/agenttrace/releases)
+[![Release](https://img.shields.io/badge/release-v1.2.0-blueviolet)](https://github.com/liushukai410/agenttrace/releases)
+[![PyPI](https://img.shields.io/badge/PyPI-agenttrace--forensics-blue)](https://pypi.org/project/agenttrace-forensics/)
 
 记录 AI Agent 的**每一步决策**（用户输入、模型回复、工具调用、工具结果、错误），构建 **SHA-256 哈希链证据链 + 外部锚定签名**——内容篡改、整链重写、末尾截断、元信息篡改均可检测。配套风险分析（危险命令 / 敏感路径 / 密钥外泄 / PII / 提示注入）与 **HTML 时间线回放报告**，用于 Agent 事故复盘、行为审计、合规取证。
 
-> 零第三方依赖：纯 Python 标准库。`pip install` 都不用装。
+> 零第三方依赖：纯 Python 标准库，产品代码 import 零三方包（AST 门禁扫描）。
+>
+> ```bash
+> pip install agenttrace-forensics   # PyPI 发行名；导入仍是 import agenttrace
+> ```
 
 > 📖 简历/面试场景请看 [`docs/interview-guide.md`](docs/interview-guide.md)
 > （电梯陈述 → 3 分钟深讲 → 追问攻防 → 现场演示脚本）。
@@ -69,17 +74,27 @@ python -m agenttrace tsa stamp --db evidence.db            # 默认 freetsa.org�
 python -m agenttrace tsa verify --db evidence.db           # 校验哈希绑定（篡改检出）
 # v1.1：零依赖 CMS 验签——提供受信 CA（PEM bundle）做完整签名链验证
 python -m agenttrace tsa verify --db evidence.db --cafile tsa-ca.pem
+# v1.2：CMS 支持 RSA 与 ECDSA(P-256)；可叠加证书吊销检查（CRL 可重复 / OCSP）
+python -m agenttrace tsa verify --db evidence.db --cafile tsa-ca.pem \
+    --crl-file tsa-ca.crl --ocsp-url http://tsa.example/ocsp
 ```
 
 > **tsa verify 的诚实边界**：
 > - **无 `--cafile`**（v1.0.1 起显式声明）：校验 `messageImprint` 绑定但
 >   不验证 TSA 的 CMS 签名，输出总会伴随 `⚠ 未验证 TSA 的 CMS 签名` 警告
 >   与 openssl 指引。法律级证明请用 `openssl ts -verify -CAfile`。
-> - **有 `--cafile`**（v1.1 新增）：`agenttrace/cms.py` 纯标准库实现
->   X.509/RSA-PKCS1v1.5/PKCS#7 完整验证链（~470 行零依赖），通过则
->   「✔ CMS 签名验证通过（level=ca-trusted）」。已知边界：仅
->   sha256WithRSA；无 OCSP/CRL；无 CA 时即使签名数学有效也只报
->   untrusted——防自签伪造冒充。
+> - **有 `--cafile`**（v1.1 新增/v1.2 增强）：`cms.py`+`ecc.py` 纯标准库
+>   实现 X.509 / PKCS#7 完整验证链，支持 **RSA PKCS#1 v1.5 与 ECDSA
+>   P-256**（与 cryptography 库随机密钥交叉验证一致），通过则
+>   「✔ CMS 签名验证通过（level=ca-trusted）」。摘要算法仅放行 SHA-256，
+>   签名算法 OID 缺失即 fail-closed（防算法混淆）；无 CA 时即使签名数学
+>   有效也只报 untrusted——防自签伪造冒充。
+> - **吊销检查**（v1.2 新增，`revocation.py`）：`--crl-file` 本地 CRL
+>   （DER/PEM，验签 + 序列号命中 + nextUpdate 新鲜度）、`--ocsp-url`
+>   在线 OCSP（请求与 cryptography 逐字节一致、nonce 防重放、时间窗
+>   校验）；证书已吊销或响应签名无效 → exit 2；stale/无 CA 验签 → 显式
+>   ⚠ 警告。已知边界：CertID 仅 SHA-1（RFC 6960 强制）、EC 仅 P-256、
+>   OCSP 委派响应者只链到 CA、不做 EKU 深度校验。
 
 ### 接入真实 Agent 框架（v0.8 — 零依赖适配器）
 
@@ -100,6 +115,29 @@ ingest_langgraph_state(store, [m.model_dump() for m in state["messages"]])
 ```
 
 详见 `examples/adapter_demo.py`（两种格式 + 链验证 + 风险检出 + 报告全流程）。
+
+### 运行时零侵入采集（v1.2 — instrument 钩子）
+
+适配器需要你"把数据递进来"；`instrument.py` 更进一步——**不改业务代码、
+不 import 任何 SDK**，运行时包一层，之后调用自动入链、返回值与异常语义不变：
+
+```python
+from openai import OpenAI
+from agenttrace.instrument import instrument_chat_completions, trace_tool
+
+client = OpenAI()
+# 1 行接管 client.chat.completions.create（OpenAI 兼容客户端同构：vLLM/ollama/网关）
+handle = instrument_chat_completions(client, store, agent="hermes", model="gpt-x")
+client.chat.completions.create(model="gpt-x", messages=[...])  # 自动入链（含流式）
+handle.restore()
+
+# 工具函数加一个装饰器：tool_call / tool_result / error 自动记录
+@trace_tool(store, "shell")
+def shell(cmd): ...
+```
+
+离线可跑的完整流程（假客户端 + 工具装饰器 + 流式 + 验证 + 报告）：
+`python examples/runtime_hook_demo.py`。
 
 ### 性能（v1.0 实测，`tools/benchmark.py`）
 
@@ -260,18 +298,27 @@ python -m agenttrace seal verify --db evidence.db
 ```
 AgentTrace/
 ├── agenttrace/
-│   ├── schema.py      # 事件模型 + 校验（类型/actor 枚举/字段规范）
-│   ├── chain.py       # SHA-256 哈希链：append / verify / 篡改定位
-│   ├── store.py       # SQLite 证据库（单文件，含会话元信息）
-│   ├── recorder.py    # 采集器：JSONL 批量 / stdin 实时流，事件构造工厂
-│   ├── analyzer.py    # 风险分析：5 类规则，分级输出
-│   ├── report.py      # HTML 时间线回放报告生成器
-│   └── cli.py         # 命令行：init / record / verify / analyze / report
-├── tests/             # 23 个单元测试（含篡改/删链/断链检测）
-├── tools/
-│   └── make_sample_session.py  # 生成演示会话（含安全事故剧本）
-└── examples/
-    └── sample_session.jsonl    # 演示事件流
+│   ├── schema.py       # 事件模型 + 校验（类型/actor 枚举/字段规范）
+│   ├── chain.py        # SHA-256 哈希链：append / verify / 篡改定位
+│   ├── store.py        # SQLite 证据库（单文件，拒覆盖写入，含会话元信息）
+│   ├── recorder.py     # 采集器：JSONL 批量 / stdin 实时流，事件构造工厂
+│   ├── adapters.py     # 框架适配器：OpenAI Chat/Responses（含流式）/ LangGraph
+│   ├── instrument.py   # v1.2 运行时钩子：零侵入包装 SDK 客户端与工具函数
+│   ├── analyzer.py     # 风险分析：6 类规则分级 + 报告脱敏（密钥/PII 打码）
+│   ├── report.py       # HTML 时间线回放报告生成器
+│   ├── aggregate.py    # 跨会话聚合审计画像
+│   ├── bundle.py       # 证据包导出/清单校验（链+锚定+公钥+报告一体归档）
+│   ├── anchor.py       # HMAC-SHA256 外部锚定（链尾承诺签名）
+│   ├── anchor_v2.py    # Ed25519 非对称锚定（验证端无私钥）
+│   ├── ed25519.py      # RFC 8032 Ed25519 纯 Python 实现
+│   ├── tsa.py          # RFC 3161 时间戳：TSQ/TSR 零依赖构造与解析
+│   ├── cms.py          # PKCS#7/CMS + X.509 验签（RSA / ECDSA 分派）
+│   ├── ecc.py          # v1.2 NIST P-256 ECDSA 纯 Python 验签（只验不签）
+│   ├── revocation.py   # v1.2 CRL/OCSP 吊销检查（解析/验签/nonce/时间窗）
+│   └── cli.py          # 命令行入口
+├── tests/              # 170 个单元测试（含密码学交叉验证、攻击复现、CLI 端到端）
+├── tools/              # benchmark 性能门禁 / 演示会话生成
+└── examples/           # adapter_demo.py / runtime_hook_demo.py / 演示事件流
 ```
 
 ---
@@ -300,13 +347,16 @@ python -m agenttrace report --db demo.db --out report.html
 - [x] JSONL 批量 / stdin 实时流采集
 - [x] 风险分析（6 类规则，FP/FN 回归测试门禁）
 - [x] HTML 时间线回放报告（搜索/过滤/哈希/锚定状态展示）
-- [x] Ed25519 非对称锚定（RFC 8032 纯 Python 实现：验证端无私钥验证 + 公钥绑定防伪造）
 - [x] 证据包导出（bundle：链+锚定+公钥+报告+manifest 一体归档）
-- [x] RFC3161 时间戳锚定（tsa：TSQ/TSR 零依赖实现，messageImprint 绑定校验；CMS 验签经 openssl）
+- [x] RFC3161 时间戳锚定（tsa：TSQ/TSR 零依赖实现，messageImprint 绑定校验）
+- [x] CMS 零依赖验签（cms：X.509/PKCS#7，RSA-PKCS1v1.5；v1.2 增 ECDSA P-256）
 - [x] Agent 框架适配器（adapters：OpenAI Responses 流式 / Chat Completions / LangGraph，零依赖）
 - [x] 报告脱敏（--redact：密钥/PII 渲染层打码，证据库本体不变）
 - [x] 多会话聚合审计（aggregate：跨库画像 + 风险类别排行 + 高危 Top）
+- [x] 证书吊销检查（v1.2 revocation：CRL 本地 + OCSP 在线，nonce 防重放）
+- [x] 运行时零侵入采集（v1.2 instrument：包装 SDK 客户端/工具函数，流式支持）
+- [x] PyPI 发行（agenttrace-forensics，sdist + wheel，纯标准库零依赖）
 
 ---
 
-*AgentTrace v0.1.0 — 零依赖、可取证、不可抵赖。*
+*AgentTrace v1.2.0 — 零依赖、可取证、不可抵赖。*

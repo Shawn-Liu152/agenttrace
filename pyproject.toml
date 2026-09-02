@@ -3,14 +3,17 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agenttrace"
-version = "1.1.1"
-description = "AI Agent 取证审计工具 — 防篡改证据链（外部锚定）+ 风险分析 + 时间线回放报告"
+# PyPI 上 "agenttrace" 已被占用，发行名用 agenttrace-forensics；
+# import 包名仍为 agenttrace（pip install agenttrace-forensics → import agenttrace）
+name = "agenttrace-forensics"
+version = "1.2.0"
+description = "AI Agent 取证审计工具 — 防篡改证据链（RFC 3161 时间戳锚定，RSA/ECDSA 验签、CRL/OCSP 吊销检查）+ 运行时采集钩子 + 风险分析 + 时间线回放报告，纯标准库零依赖"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
 authors = [{ name = "AgentTrace contributors" }]
-keywords = ["agent", "forensics", "audit", "hash-chain", "llm", "security"]
+keywords = ["agent", "forensics", "audit", "hash-chain", "llm", "security",
+            "timestamp", "rfc3161", "ecdsa", "ocsp", "crl"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
@@ -20,12 +23,17 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security",
+    "Topic :: Security :: Cryptography",
     "Topic :: Software Development :: Quality Assurance",
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourname/agenttrace"
+Homepage = "https://github.com/liushukai410/agenttrace"
+Repository = "https://github.com/liushukai410/agenttrace"
+Issues = "https://github.com/liushukai410/agenttrace/issues"
+Changelog = "https://github.com/liushukai410/agenttrace/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
 packages = ["agenttrace"]

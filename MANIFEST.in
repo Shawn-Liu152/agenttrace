@@ -1,0 +1,16 @@
+include LICENSE
+include README.md
+include CHANGELOG.md
+include SECURITY.md
+include CONTRIBUTING.md
+include pyproject.toml
+recursive-include agenttrace *.py
+recursive-include tests *.py
+recursive-include tests/fixtures *.der *.pem *.bin
+recursive-include examples *.py *.jsonl
+recursive-include docs *.md *.docx
+recursive-include .github *.yml
+global-exclude *.py[cod]
+global-exclude __pycache__/*
+prune build
+prune dist

@@ -3,6 +3,60 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.2.0] - 2026-09-02
+
+### 密码学信任链补齐 + 真实运行时零侵入采集（三大功能）
+
+**① 零依赖 ECDSA CMS 验签（`ecc.py` + `cms.py`）**
+- **新增 `agenttrace/ecc.py`（145 行，纯标准库）**：NIST P-256 域参数、
+  仿射点加/倍点/标量乘（double-and-add）、未压缩点解码、DER (r,s)
+  签名解析、`ecdsa_verify_p256`——只验不签，无第三方密码学依赖
+- **`cms.py` 扩展**：`parse_cert` 识别 id-ecPublicKey/P-256 公钥与
+  ecdsa-with-SHA256 签名算法；新增 `verify_with_cert_key()` 按证书公钥
+  类型分派 RSA/ECDSA；`verify_cms` 增加摘要算法门禁（仅 SHA-256，
+  拒绝算法混淆）、结果新增 `sig_alg` 与 `signer_cert_der`
+- **fail-closed 修复**：签名算法 OID 缺失/无法识别时不再"按公钥类型
+  默认算法"放行（算法混淆攻击面），直接判失败
+- **交叉验证**：与 cryptography 库 8 组随机 EC 密钥逐组比对验签结论，
+  两实现判定完全一致；拒 P-384 等未实现曲线、畸形签名返 False
+
+**② CRL/OCSP 证书吊销检查（`revocation.py`，349 行，纯标准库）**
+- **CRL 本地校验**：DER/PEM CRL 解析、CRL 签名验证（RSA/ECDSA 分派）、
+  证书序列号命中吊销清单、nextUpdate 过期（stale）显式警告、无受信 CA
+  时显式降级而非静默通过；TBS/算法 OID/签名区多点位篡改全部检出
+- **OCSP**：请求构造（CertID 与 cryptography **逐字节相同**、SHA-1
+  AlgorithmIdentifier 带 NULL 参数、可挂 nonce 扩展防重放）；HTTP POST
+  由 `urllib` 完成；BasicOCSPResponse 解析（good=0x80/revoked=0xA1/
+  unknown=0x82 的 IMPLICIT tag）、CA 直签或嵌入式委派证书链到 CA 验签、
+  CertID 逐字节匹配、nonce 回显校验、thisUpdate/nextUpdate 时间窗校验、
+  non-successful 响应状态拒绝
+- **CLI 接线**：`tsa verify --cafile ca.pem [--crl-file c1.der ...]
+  [--ocsp-url URL]`，吊销/签名失败 exit 2，stale/无 CA 验签为显式 ⚠
+- 已知边界（SECURITY.md 同步）：CertID 仅 SHA-1（RFC 6960 强制）、
+  EC 仅 P-256、委派响应者不做 EKU 深度校验（链到 CA 即信）
+
+**③ 真实 Agent 运行时零侵入采集钩子（`instrument.py`，236 行）**
+- `instrument_chat_completions()` / `instrument_responses()`：运行时
+  包装 OpenAI 兼容客户端（不 import openai、鸭子类型认 model_dump/
+  __dict__），请求与响应消息自动入证据链，**返回值/异常语义不变**，
+  支持流式（逐块透传、消费结束自动聚合入链），`.restore()`/with 还原
+- `@trace_tool` 装饰器：任意工具函数自动记 tool_call/tool_result/
+  error，输出超限截断并标注，异常记 error 后原样抛出
+- `traced_session()` 上下文管理器自动补 session_start/session_end
+- **修复 Recorder 多实例 seq 冲突**：序号从"构造时缓存"改为"写入瞬间
+  以库内链尾为准"——同一 store 并存多个 Recorder（客户端包装 + 工具
+  装饰器 + 会话上下文）时不再触发取证库 UNIQUE 保护
+- 新增 `examples/runtime_hook_demo.py`（离线假客户端全流程，CI 可跑）
+
+**工程**
+- 测试 129 → **170**（+41：ECDSA 10、CRL/OCSP 19、instrument 12，
+  含与 cryptography 的逐字节/随机密钥交叉验证与 CLI 端到端集成）
+- 产品代码 ~3,600 → **4,383 行**（19 模块，纯标准库零依赖红线不变；
+  cryptography/tomli 仅测试期使用）
+- 发行名定为 **agenttrace-forensics**（PyPI 上 agenttrace 已被占用），
+  import 包名仍为 agenttrace；补全项目 URL、3.13 classifier、MANIFEST.in
+- 攻击门禁 7/7、5 万事件性能门禁通过（追加 90,357 条/s）
+
 ## [1.1.1] - 2026-09-02
 
 ### 跨平台编码修复（GitHub CI 9 平台全红的根因）

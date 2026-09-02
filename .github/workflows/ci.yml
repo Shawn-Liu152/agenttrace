@@ -44,6 +44,7 @@ jobs:
           agenttrace verify --db smoke.db
 
       - name: Verify pyproject parses
+        shell: bash
         run: |
           python - <<'EOF'
           try:
@@ -56,37 +57,39 @@ jobs:
           EOF
 
       - name: Verify zero-dependency claim
+        shell: bash
         run: |
           python - <<'EOF'
-          import ast, pathlib, sys
-          # stdlib_module_names 是 3.10+；3.9 用 builtin + 常见 stdlib 前缀兜底
-          if hasattr(sys, 'stdlib_module_names'):
-              allowed = set(sys.stdlib_module_names) | {'agenttrace'}
-          else:
-              allowed = set(sys.builtin_module_names) | {
-                  'abc','argparse','base64','datetime','hashlib','hmac','json',
-                  'math','os','re','shutil','sqlite3','struct','subprocess',
-                  'sys','tempfile','textwrap','time','typing','urllib','uuid',
-                  'io','itertools','collections','contextlib','pathlib',
-                  'random','copy','stat','fnmatch','html','importlib',
-                  'concurrent','secrets','ctypes','warnings','dataclasses',
-                  'bisect','enum','functools','ast','binascii','string',
-                  'codecs','locale','platform'} | {'agenttrace'}
+          import ast, importlib.util, pathlib, sys, sysconfig
+          stdlib_root = pathlib.Path(sysconfig.get_path('stdlib')).resolve()
           bad = []
+          def stdlib_ok(top):
+              if top == 'agenttrace':
+                  return True
+              try:
+                  spec = importlib.util.find_spec(top)
+              except (ImportError, ValueError):
+                  return False
+              if spec is None:
+                  return False
+              if spec.origin is None or spec.origin.startswith('<'):
+                  return True  # 内建/冻结模块（sys、__future__ 等）
+              p = pathlib.Path(spec.origin).resolve()
+              return p.is_relative_to(stdlib_root)
           for p in pathlib.Path('agenttrace').glob('*.py'):
               tree = ast.parse(p.read_text(encoding='utf-8'))
               for node in ast.walk(tree):
                   if isinstance(node, ast.Import):
                       for a in node.names:
                           top = a.name.split('.')[0]
-                          if top not in allowed:
+                          if not stdlib_ok(top):
                               bad.append((p.name, a.name))
                   elif isinstance(node, ast.ImportFrom) and node.module:
                       if node.level > 0:
-                          continue  # 相对导入（from .x import y）→ 包内模块，跳过
+                          continue  # 相对导入（from .x import y）→ 包内模块
                       top = node.module.split('.')[0]
-                      if top not in allowed:
+                      if not stdlib_ok(top):
                           bad.append((p.name, node.module))
           assert not bad, f'非标准库依赖: {bad}'
-          print('zero-dependency OK (AST import scan)')
+          print('zero-dependency OK (stdlib-path scan, py3.9+ compatible)')
           EOF

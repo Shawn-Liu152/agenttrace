@@ -8,9 +8,16 @@
   - SQLite 库文件大小
 """
 import argparse
+import sys
+
+# Windows CI cp1252 控制台：Unicode 符号直接 print 会炸——强制 UTF-8
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 import json
 import os
-import sys
 import tempfile
 import time
 

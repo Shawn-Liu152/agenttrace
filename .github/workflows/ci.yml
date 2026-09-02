@@ -59,7 +59,19 @@ jobs:
         run: |
           python - <<'EOF'
           import ast, pathlib, sys
-          allowed = set(sys.stdlib_module_names) | {'agenttrace'}
+          # stdlib_module_names 是 3.10+；3.9 用 builtin + 常见 stdlib 前缀兜底
+          if hasattr(sys, 'stdlib_module_names'):
+              allowed = set(sys.stdlib_module_names) | {'agenttrace'}
+          else:
+              allowed = set(sys.builtin_module_names) | {
+                  'abc','argparse','base64','datetime','hashlib','hmac','json',
+                  'math','os','re','shutil','sqlite3','struct','subprocess',
+                  'sys','tempfile','textwrap','time','typing','urllib','uuid',
+                  'io','itertools','collections','contextlib','pathlib',
+                  'random','copy','stat','fnmatch','html','importlib',
+                  'concurrent','secrets','ctypes','warnings','dataclasses',
+                  'bisect','enum','functools','ast','binascii','string',
+                  'codecs','locale','platform'} | {'agenttrace'}
           bad = []
           for p in pathlib.Path('agenttrace').glob('*.py'):
               tree = ast.parse(p.read_text(encoding='utf-8'))

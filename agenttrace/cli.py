@@ -281,8 +281,29 @@ def cmd_tsa(args: argparse.Namespace) -> int:
         ok, problems = verify(args.db)
         if ok:
             print("✔ 时间戳绑定有效: messageImprint 与当前锚定哈希一致")
+            if args.cafile:
+                # v1.1：零依赖 CMS 验签（真实密码学验证 + 信任锚定）
+                from .cms import load_ca_pem, verify_cms
+                tsr_p = args.db + ".anchor.tsr"
+                try:
+                    ca_certs = load_ca_pem(args.cafile)
+                except (OSError, ValueError) as e:
+                    print(f"✘ CA 文件读取失败: {e}", file=sys.stderr)
+                    return 2
+                with open(tsr_p, "rb") as f:
+                    tsr_bytes = f.read()
+                res = verify_cms(tsr_bytes, ca_certs=ca_certs)
+                if res["verified"]:
+                    print(f"✔ CMS 签名验证通过（level={res['level']}，"
+                          f"genTime={res.get('gen_time')}）")
+                    print("   时间戳来自 --cafile 受信 CA 链，可用于法律级证明")
+                    return 0
+                print(f"✘ CMS 签名验证失败: "
+                      f"{'; '.join(res['problems']) or '证书链未通过信任锚定'}")
+                return 2
             print("⚠ 未验证 TSA 的 CMS 签名——本校验不能证明时间戳来自真实 TSA")
-            print(f"   如需法律级证明: openssl ts -verify -data {args.db}.anchor.tsq "
+            print(f"   加 --cafile <tsa_ca.pem> 可做零依赖 CMS 验签；或:")
+            print(f"   openssl ts -verify -data {args.db}.anchor.tsq "
                   f"-in {args.db}.anchor.tsr -CAfile <tsa_cert.pem>")
             return 0
         print(f"✘ 时间戳验证失败: {len(problems)} 处问题")
@@ -442,6 +463,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_tsa.add_argument("--tsa-url", default="https://freetsa.org/tsr",
                        help="TSA 服务 URL（默认公共 freetsa.org）")
     p_tsa.add_argument("--timeout", type=float, default=15.0, help="HTTP 超时秒数")
+    p_tsa.add_argument("--cafile", default=None,
+                       help="verify 时做 CMS 验签的受信 CA（PEM bundle 路径）")
 
     p_seal = sub.add_parser("seal", help="Ed25519 外部锚定（v0.4）：keygen/seal/verify")
     p_seal.add_argument("action", choices=["keygen", "seal", "verify"],

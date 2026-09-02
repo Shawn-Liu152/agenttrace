@@ -98,7 +98,8 @@ class TestAggregateCLI(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("聚合报告已生成", r.stdout)
         self.assertTrue(os.path.exists(out))
-        html = open(out, encoding="utf-8").read()
+        with open(out, encoding="utf-8") as f:
+            html = f.read()
         self.assertIn("危险命令", html)
 
 

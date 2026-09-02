@@ -57,13 +57,19 @@ python -m agenttrace aggregate --dbs a.db,b.db,c.db --out agg.html
 # 8. RFC3161 时间戳锚定：把锚定哈希交给权威 TSA 打"存在性证明"时间戳
 python -m agenttrace tsa stamp --db evidence.db            # 默认 freetsa.org，可 --tsa-url
 python -m agenttrace tsa verify --db evidence.db           # 校验哈希绑定（篡改检出）
+# v1.1：零依赖 CMS 验签——提供受信 CA（PEM bundle）做完整签名链验证
+python -m agenttrace tsa verify --db evidence.db --cafile tsa-ca.pem
 ```
 
-> **tsa verify 的诚实边界（v1.0.1 起显式声明）**：本工具校验
-> `messageImprint` 绑定（锚定没被换）但**不验证 TSA 的 CMS 签名**（需
-> X.509/CA 链，超出零依赖范围）——`tsa verify` 成功输出总会伴随
-> `⚠ 未验证 TSA 的 CMS 签名` 警告与 `openssl ts -verify` 指引。法律级
-> 证明请用 openssl 验签（`-CAfile <tsa_cert.pem>`）。
+> **tsa verify 的诚实边界**：
+> - **无 `--cafile`**（v1.0.1 起显式声明）：校验 `messageImprint` 绑定但
+>   不验证 TSA 的 CMS 签名，输出总会伴随 `⚠ 未验证 TSA 的 CMS 签名` 警告
+>   与 openssl 指引。法律级证明请用 `openssl ts -verify -CAfile`。
+> - **有 `--cafile`**（v1.1 新增）：`agenttrace/cms.py` 纯标准库实现
+>   X.509/RSA-PKCS1v1.5/PKCS#7 完整验证链（~470 行零依赖），通过则
+>   「✔ CMS 签名验证通过（level=ca-trusted）」。已知边界：仅
+>   sha256WithRSA；无 OCSP/CRL；无 CA 时即使签名数学有效也只报
+>   untrusted——防自签伪造冒充。
 
 ### 接入真实 Agent 框架（v0.8 — 零依赖适配器）
 

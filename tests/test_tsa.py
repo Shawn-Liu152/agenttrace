@@ -173,9 +173,11 @@ class TestStampVerify(unittest.TestCase):
         # stamp 后修改锚定内容 → 哈希变化 → messageImprint 不匹配
         with TSAHttpServer() as ts:
             tsa.stamp(self.db, ts.url)
-        rec = json.load(open(self.db + ".anchor.json", encoding="utf-8"))
+        with open(self.db + ".anchor.json", encoding="utf-8") as f:
+            rec = json.load(f)
         rec["tip_hash"] = "0" * 64
-        json.dump(rec, open(self.db + ".anchor.json", "w", encoding="utf-8"))
+        with open(self.db + ".anchor.json", "w", encoding="utf-8") as f:
+            json.dump(rec, f)
         ok, problems = tsa.verify(self.db)
         self.assertFalse(ok)
         self.assertTrue(any("不符" in p for p in problems), problems)

@@ -3,6 +3,24 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.1.0] - 2026-09-01
+
+### CMS 签名零依赖验证（收官终评 −0.2 项）
+
+- **新增 `agenttrace/cms.py`（~470 行，纯标准库）**：PKCS#7/CMS 签名验证链
+  - X.509 证书 DER 解析（TBS 原文保留，链验签用）
+  - RSA PKCS#1 v1.5 验签（SHA-256 DigestInfo）
+  - SignedData 解析：signedAttrs [1]→SET 形态重建、messageDigest attr 比对、
+    IssuerAndSerialNumber 匹配签名者证书、CA 链 / 自签判定、genTime 有效期检查
+  - `tsa verify --cafile <ca.pem>`：受信 CA 链 → "✔ CMS 签名验证通过
+    （level=ca-trusted）"；无 CA 保持诚实降级警告（不静默通过）
+- **交叉验证**：cryptography 库独立确认 fixture 证书链 + 签名有效；
+  篡改 TSR（签名位 / eContent 一字节 / 无签名伪造）全部检出，两实现判定一致
+- **测试 114 → 123**：`test_cms.py` 12 项（fixture 真实 RSA-SHA256 签名链 +
+  CLI 集成 3 项）；修复全部 ResourceWarning（产品 + 测试裸 open 清零）
+- 已知边界（SECURITY.md 同步）：仅 sha256WithRSA；不做 OCSP/CRL；
+  无 --cafile 即使签名数学有效也只报 untrusted——防自签伪造冒充
+
 ## [1.0.3] - 2026-09-01
 
 ### 终评 4.1 / 4.2 修复（9.4 → 预期 9.5）

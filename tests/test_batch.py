@@ -54,7 +54,8 @@ class TestBatchMode(unittest.TestCase):
         self.assertEqual(n, 20)
         # 锚定文件存在且 tip 与库里一致
         import json
-        rec = json.load(open(db + ".anchor.json", encoding="utf-8"))
+        with open(db + ".anchor.json", encoding="utf-8") as f:
+            rec = json.load(f)
         tail = s.all_events()[-1]
         self.assertEqual(rec["tip_hash"], tail["hash"])
         s.close()

@@ -383,7 +383,8 @@ def verify(db_path: str, out_dir: Optional[str] = None) -> tuple[bool, List[str]
     if not os.path.exists(tsq_p) or not os.path.exists(tsr_p):
         return False, ["时间戳文件缺失（未 stamp 或文件被删）: .anchor.tsq/.anchor.tsr"]
     h = _anchor_hash(db_path)
-    tsr = open(tsr_p, "rb").read()
+    with open(tsr_p, "rb") as f:
+        tsr = f.read()
     parsed = parse_tsr(tsr)
     if not parsed.get("valid"):
         return False, parsed.get("problems", ["TSR 无效"])

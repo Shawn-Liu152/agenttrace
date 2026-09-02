@@ -33,7 +33,8 @@ AgentTrace 是一个取证/审计工具——它存在的前提就是**可信**�
 |---|---|---|
 | **HMAC 锚定密钥与库同获** | 攻击者同时拿到密钥文件与库可重签 | 密钥默认在用户配置目录；生产用环境变量/离线保管 |
 | **Ed25519 私钥泄露** | 拿到私钥可重签锚定 | 私钥只留签名端，验证端只用公钥绑定（`--public-key`） |
-| **TSA CMS 签名未验证** | `tsa verify` 只校验 messageImprint 绑定 | CLI 输出强制声明 + `openssl ts -verify` 指引 |
+| **TSA CMS 签名（无 --cafile）** | 无 CA 时只校验 messageImprint 绑定 | CLI 输出强制声明 + `--cafile` 零依赖验签（v1.1）/openssl 指引 |
+| **CMS 验签算法范围（有 --cafile）** | 仅支持 sha256WithRSA；无 OCSP/CRL 吊销检查 | 文档 + 验签失败显式报错，绝不静默通过；其余算法报"不支持" |
 | **纯 Python 密码学常时性** | `ed25519.py` 标量乘非常数时间 | 威胁模型是事后篡改检测；高对抗场景换 libsodium |
 | **后端信任** | TSA/时间源本身的诚实性 | 用权威 TSA + openssl 验签链 |
 

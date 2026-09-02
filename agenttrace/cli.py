@@ -305,7 +305,55 @@ def cmd_tsa(args: argparse.Namespace) -> int:
                 res = verify_cms(tsr_bytes, ca_certs=ca_certs)
                 if res["verified"]:
                     print(f"✔ CMS 签名验证通过（level={res['level']}，"
-                          f"genTime={res.get('gen_time')}）")
+                          f"alg={res.get('sig_alg')}，genTime={res.get('gen_time')}）")
+                    # v1.2：吊销检查（CRL 离线 / OCSP 在线），签名者证书来自 TSR 内嵌
+                    signer_der = res.get("signer_cert_der")
+                    if args.crl_file and signer_der:
+                        from .revocation import check_crl
+                        for crl_path in args.crl_file:
+                            try:
+                                with open(crl_path, "rb") as cf:
+                                    crl_bytes = cf.read()
+                                rr = check_crl(signer_der, crl_bytes, ca_certs)
+                            except (OSError, ValueError) as e:
+                                print(f"✘ CRL 读取/解析失败（{crl_path}）: {e}",
+                                      file=sys.stderr)
+                                return 2
+                            if rr["crl_signature_ok"] is False:
+                                print(f"✘ CRL 签名验证失败（{crl_path}）: "
+                                      f"{'; '.join(rr['problems'])}", file=sys.stderr)
+                                return 2
+                            if rr["revoked"]:
+                                print(f"✘ 签名者证书已被 CRL 吊销（{crl_path}，"
+                                      f"吊销时间 {rr.get('revoked_at')}）", file=sys.stderr)
+                                return 2
+                            for warn in rr["problems"]:
+                                print(f"   ⚠ {warn}")
+                            print(f"   ✔ CRL 吊销检查通过（{crl_path}，"
+                                  f"签名验证有效，序列号未命中）")
+                    if args.ocsp_url and signer_der:
+                        from .revocation import check_ocsp
+                        try:
+                            oc = check_ocsp(signer_der, ca_certs[0],
+                                            args.ocsp_url, timeout=args.timeout)
+                        except (RuntimeError, ValueError) as e:
+                            print(f"✘ OCSP 查询失败: {e}", file=sys.stderr)
+                            return 2
+                        if not oc.get("response_verified"):
+                            print(f"✘ OCSP 响应验证失败: "
+                                  f"{'; '.join(oc.get('verify_problems', []))}",
+                                  file=sys.stderr)
+                            return 2
+                        if oc.get("cert_status") == "revoked":
+                            print(f"✘ 签名者证书已被 OCSP 吊销（"
+                                  f"{oc.get('revoked_at')}）", file=sys.stderr)
+                            return 2
+                        if oc.get("cert_status") != "good":
+                            print(f"✘ OCSP 证书状态非 good: {oc.get('cert_status')}",
+                                  file=sys.stderr)
+                            return 2
+                        print(f"   ✔ OCSP 在线状态 good（{args.ocsp_url}，"
+                              f"nonce 回显一致，响应签名有效）")
                     print("   时间戳来自 --cafile 受信 CA 链，可用于法律级证明")
                     return 0
                 print(f"✘ CMS 签名验证失败: "
@@ -475,6 +523,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_tsa.add_argument("--timeout", type=float, default=15.0, help="HTTP 超时秒数")
     p_tsa.add_argument("--cafile", default=None,
                        help="verify 时做 CMS 验签的受信 CA（PEM bundle 路径）")
+    p_tsa.add_argument("--crl-file", action="append", default=[],
+                       help="v1.2 CRL 吊销清单（DER/PEM，可重复传多个），CMS 通过后检查签名者证书")
+    p_tsa.add_argument("--ocsp-url", default=None,
+                       help="v1.2 OCSP 响应器 URL，CMS 通过后在线查询签名者证书状态")
 
     p_seal = sub.add_parser("seal", help="Ed25519 外部锚定（v0.4）：keygen/seal/verify")
     p_seal.add_argument("action", choices=["keygen", "seal", "verify"],

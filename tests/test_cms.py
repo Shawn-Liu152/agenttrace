@@ -122,9 +122,18 @@ if __name__ == "__main__":
 
 
 class TestCliCafileIntegration(unittest.TestCase):
-    """CLI 集成：tsa verify --cafile 完整链路（fixture 绑定真实锚定哈希）。"""
+    """CLI 集成：tsa verify --cafile 完整链路（fixture 绑定真实锚定哈希）。
+
+    需要 cryptography 动态生成绑定 fixture；缺失时 skip（已提交的静态
+    fixture 覆盖纯验签部分，CI 上装有 cryptography 全量跑）。
+    """
 
     def setUp(self):
+        try:
+            import make_fixture
+            make_fixture._crypto()  # 探测 cryptography 可用性
+        except ImportError:
+            self.skipTest("cryptography 未装（测试专用依赖，CI 已装）")
         import subprocess
         import tempfile
         self.tmp = tempfile.mkdtemp()

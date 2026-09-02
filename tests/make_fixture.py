@@ -2,15 +2,14 @@
 
 用 cryptography 库做真实 RSA-SHA256 签名，结构严格按 RFC3161/CMS 手工构造。
 产品代码 cms.py（零依赖）独立验签它；CA 链/自签判定交叉验证。
+
+注意：cryptography 只是 **测试专用** 依赖（fixture 生成器用）。
+仓库已提交预生成 fixture（tests/fixtures/），无 cryptography 时测试直接
+读取，不重新生成。
 """
 import hashlib
 import os
 import sys
-
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -20,8 +19,18 @@ der_tlv = cms.der_tlv
 der_int = cms.der_int
 
 
+def _crypto():
+    """惰性 import——无 cryptography 时未调用 build_fixture 就不失败。"""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+    return x509, hashes, serialization, rsa, ExtendedKeyUsageOID, NameOID
+
+
 def build_fixture(out_dir, message: bytes = b"anchor-sha256-digest-fixture",
                   gen_time: bytes = b"20260901080000Z"):
+    x509, hashes, serialization, rsa, ExtendedKeyUsageOID, NameOID = _crypto()
     # ---- CA + TSA 证书（真实签名链）----
     import datetime
     now = datetime.datetime(2026, 1, 1)

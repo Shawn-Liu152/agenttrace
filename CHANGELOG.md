@@ -3,6 +3,20 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 与
 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.1.1] - 2026-09-02
+
+### 跨平台编码修复（GitHub CI 9 平台全红的根因）
+
+- **CLI 输出强制 UTF-8**：`✔/✘/⚠/🔐` 等 Unicode 符号在 Windows CI 默认
+  cp1252 控制台下 print 触发 `UnicodeEncodeError` 崩溃（本地 UTF-8 环境
+  不复现——正是测试封闭性纪律的盲区）。`main()` 入口 `reconfigure(
+  encoding="utf-8", errors="replace")`，失败静默不影响原逻辑
+- **新增 `test_cp1252_console.py`**：强制 `PYTHONIOENCODING=cp1252 +
+  PYTHONUTF8=0` 子进程跑 init/verify/report，三平台可复现的编码回归门禁
+- **CI Package install smoke** 补 `--anchor`（未锚定库 verify 正确返回 1，
+  之前 smoke 脚本自己建了无锚定库导致误红）
+- 测试 126 → 129（+3 编码回归）
+
 ## [1.1.0] - 2026-09-01
 
 ### CMS 签名零依赖验证（收官终评 −0.2 项）

@@ -39,7 +39,7 @@ jobs:
         run: |
           python -m pip install .
           agenttrace --version
-          agenttrace init --db smoke.db --agent ci
+          agenttrace init --db smoke.db --agent ci --anchor
           agenttrace record examples/sample_session.jsonl --db smoke.db
           agenttrace verify --db smoke.db
 

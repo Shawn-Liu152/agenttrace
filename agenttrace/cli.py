@@ -414,6 +414,14 @@ def cmd_bundle(args: argparse.Namespace) -> int:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # Windows CI/旧控制台 cp1252 下 Unicode 符号（✔/✘/⚠）会炸编码——
+    # 强制 UTF-8 输出（v1.1.1 跨平台修复；失败也不影响原有逻辑）
+    import sys as _sys
+    for _s in (_sys.stdout, _sys.stderr):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     parser = argparse.ArgumentParser(
         prog="agenttrace",
         description="AI Agent 取证审计工具 — 防篡改证据链 + 风险分析 + 时间线回放报告",
